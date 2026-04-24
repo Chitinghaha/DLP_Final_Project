@@ -1,0 +1,14 @@
+__pycache__/
+.venv/
+Classification/.venv/
+Classification/results/
+data/
+results/
+*.log
+*.out
+*.err
+*.pth.tar
+*.pt
+*.zip
+*.pyc
+.DS_Store
