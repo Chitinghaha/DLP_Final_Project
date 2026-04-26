@@ -77,6 +77,113 @@ ORDER_CONFIGS = {
 
 METRICS = ["forget_accuracy", "UA", "retain_accuracy", "full_test_accuracy"]
 
+CIFAR100_FINE_LABELS = [
+    "apple",
+    "aquarium_fish",
+    "baby",
+    "bear",
+    "beaver",
+    "bed",
+    "bee",
+    "beetle",
+    "bicycle",
+    "bottle",
+    "bowl",
+    "boy",
+    "bridge",
+    "bus",
+    "butterfly",
+    "camel",
+    "can",
+    "castle",
+    "caterpillar",
+    "cattle",
+    "chair",
+    "chimpanzee",
+    "clock",
+    "cloud",
+    "cockroach",
+    "couch",
+    "crab",
+    "crocodile",
+    "cup",
+    "dinosaur",
+    "dolphin",
+    "elephant",
+    "flatfish",
+    "forest",
+    "fox",
+    "girl",
+    "hamster",
+    "house",
+    "kangaroo",
+    "keyboard",
+    "lamp",
+    "lawn_mower",
+    "leopard",
+    "lion",
+    "lizard",
+    "lobster",
+    "man",
+    "maple_tree",
+    "motorcycle",
+    "mountain",
+    "mouse",
+    "mushroom",
+    "oak_tree",
+    "orange",
+    "orchid",
+    "otter",
+    "palm_tree",
+    "pear",
+    "pickup_truck",
+    "pine_tree",
+    "plain",
+    "plate",
+    "poppy",
+    "porcupine",
+    "possum",
+    "rabbit",
+    "raccoon",
+    "ray",
+    "road",
+    "rocket",
+    "rose",
+    "sea",
+    "seal",
+    "shark",
+    "shrew",
+    "skunk",
+    "skyscraper",
+    "snail",
+    "snake",
+    "spider",
+    "squirrel",
+    "streetcar",
+    "sunflower",
+    "sweet_pepper",
+    "table",
+    "tank",
+    "telephone",
+    "television",
+    "tiger",
+    "tractor",
+    "train",
+    "trout",
+    "tulip",
+    "turtle",
+    "wardrobe",
+    "whale",
+    "willow_tree",
+    "wolf",
+    "woman",
+    "worm",
+]
+
+PILOT_CLASS_IDS = [item["id"] for item in PILOT_CLASSES]
+PILOT_CLASS_SET = set(PILOT_CLASS_IDS)
+RETAIN_CLASS_IDS = [class_id for class_id in range(100) if class_id not in PILOT_CLASS_SET]
+
 
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
@@ -116,6 +223,11 @@ def read_eval_rows(eval_root: Path, namespace: str, seed: int, order: list[int])
     return rows
 
 
+def read_eval_row(path: Path) -> dict:
+    with path.open(newline="") as handle:
+        return next(csv.DictReader(handle))
+
+
 def read_progress_rows(path: Path) -> list[dict]:
     if not path.exists():
         return []
@@ -137,8 +249,59 @@ def class_accuracy(row: dict, class_id: int) -> float:
     return fnum(row[f"class_{class_id}_accuracy"])
 
 
+def any_class_label(class_id: int) -> str:
+    if class_id in CLASS_META:
+        return class_label(class_id)
+    return f"{CIFAR100_FINE_LABELS[class_id]} ({class_id})"
+
+
 def class_series(rows: list[dict], class_id: int) -> tuple[list[int], list[float]]:
     return [int(row["step"]) for row in rows], [class_accuracy(row, class_id) for row in rows]
+
+
+def final_delta(order_rows: dict[str, list[dict]], baseline_row: dict, key: str, class_id: int) -> float:
+    return class_accuracy(order_rows[key][-1], class_id) - class_accuracy(baseline_row, class_id)
+
+
+def worst_transient_delta(order_rows: dict[str, list[dict]], baseline_row: dict, key: str, class_id: int) -> float:
+    baseline = class_accuracy(baseline_row, class_id)
+    return min(class_accuracy(row, class_id) for row in order_rows[key]) - baseline
+
+
+def mean_accuracy(row: dict, class_ids: list[int]) -> float:
+    return float(np.mean([class_accuracy(row, class_id) for class_id in class_ids]))
+
+
+def mean_final_accuracy(order_rows: dict[str, list[dict]], key: str, class_ids: list[int]) -> float:
+    return mean_accuracy(order_rows[key][-1], class_ids)
+
+
+def mean_worst_transient_accuracy(order_rows: dict[str, list[dict]], key: str, class_ids: list[int]) -> float:
+    values = [
+        min(class_accuracy(row, class_id) for row in order_rows[key])
+        for class_id in class_ids
+    ]
+    return float(np.mean(values))
+
+
+def delta_status(final_deltas: list[float], transient_deltas: list[float], is_forgotten: bool) -> str:
+    worst_final = min(final_deltas)
+    worst_transient = min(transient_deltas)
+    if is_forgotten:
+        if max(final_deltas) <= -50:
+            return "intended forget"
+        if max(final_deltas) <= -30:
+            return "mostly forgotten"
+        return "residual/rebound"
+    if worst_final <= -10:
+        return "final drop"
+    if worst_transient <= -10:
+        return "transient drop"
+    if max(final_deltas) >= 5:
+        return "final gain"
+    if worst_final <= -5:
+        return "mild final drop"
+    return "stable"
 
 
 def newly_forgotten_values(rows: list[dict], order: list[int]) -> list[float]:
@@ -648,6 +811,57 @@ def save_retain_forget_tradeoff(output_path: Path, order_rows: dict[str, list[di
     plt.close(fig)
 
 
+def save_retain_delta_heatmap(output_path: Path, baseline_row: dict, order_rows: dict[str, list[dict]]) -> None:
+    data = []
+    row_labels = []
+    for key, config in ORDER_CONFIGS.items():
+        final_deltas = [final_delta(order_rows, baseline_row, key, class_id) for class_id in RETAIN_CLASS_IDS]
+        transient_deltas = [worst_transient_delta(order_rows, baseline_row, key, class_id) for class_id in RETAIN_CLASS_IDS]
+        data.extend([final_deltas, transient_deltas])
+        row_labels.extend([f"{config['label']} final", f"{config['label']} worst"])
+    data = np.array(data)
+    vmax = max(20.0, float(np.nanmax(np.abs(data))))
+    fig, ax = plt.subplots(figsize=(15, 4.8))
+    im = ax.imshow(data, aspect="auto", cmap="RdBu_r", vmin=-vmax, vmax=vmax)
+    ax.set_yticks(range(len(row_labels)))
+    ax.set_yticklabels(row_labels)
+    ax.set_xticks(range(len(RETAIN_CLASS_IDS)))
+    ax.set_xticklabels(RETAIN_CLASS_IDS, fontsize=6)
+    ax.set_xlabel("CIFAR-100 retain class id")
+    ax.set_title("Retain-Class Accuracy Delta vs CIFAR-100 Baseline", fontsize=12, weight="bold")
+    fig.colorbar(im, ax=ax, label="Accuracy delta vs baseline (pp)")
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
+def save_retain_worst_drop_bar(output_path: Path, baseline_row: dict, order_rows: dict[str, list[dict]], limit: int = 20) -> None:
+    items = []
+    for class_id in RETAIN_CLASS_IDS:
+        worst_delta = min(
+            worst_transient_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        )
+        items.append((worst_delta, class_id))
+    items = sorted(items)[:limit]
+    labels = [f"{CIFAR100_FINE_LABELS[class_id]}\n({class_id})" for _, class_id in items]
+    values = [delta for delta, _ in items]
+    colors = ["#D55E00" if value <= -10 else "#E69F00" for value in values]
+    fig, ax = plt.subplots(figsize=(12, 5.8))
+    ax.bar(range(len(values)), values, color=colors)
+    ax.axhline(-10, color="crimson", linestyle="--", linewidth=1.0, alpha=0.8, label="-10pp guide")
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels(labels, fontsize=8)
+    ax.set_ylabel("Worst transient delta vs baseline (pp)")
+    ax.set_title("Retain Classes with Largest Temporary Accuracy Drops", fontsize=12, weight="bold")
+    ax.grid(True, axis="y", alpha=0.22)
+    ax.legend(frameon=False)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=180)
+    plt.close(fig)
+
+
 def save_runtime_total(output_path: Path, order_progress: dict[str, list[dict]]) -> None:
     labels = [ORDER_CONFIGS[key]["label"] for key in ORDER_CONFIGS]
     values = [total_duration(order_progress[key]) / 60.0 for key in ORDER_CONFIGS]
@@ -834,6 +1048,119 @@ def top_nonzero_rebound_table(order_rows: dict[str, list[dict]], limit: int = 18
     return rows
 
 
+def retain_impact_summary_table(baseline_row: dict, order_rows: dict[str, list[dict]]) -> list[list[str]]:
+    rows = []
+    baseline_mean = mean_accuracy(baseline_row, RETAIN_CLASS_IDS)
+    for key, config in ORDER_CONFIGS.items():
+        final_deltas = [final_delta(order_rows, baseline_row, key, class_id) for class_id in RETAIN_CLASS_IDS]
+        transient_deltas = [worst_transient_delta(order_rows, baseline_row, key, class_id) for class_id in RETAIN_CLASS_IDS]
+        final_mean = mean_final_accuracy(order_rows, key, RETAIN_CLASS_IDS)
+        transient_mean = mean_worst_transient_accuracy(order_rows, key, RETAIN_CLASS_IDS)
+        rows.append(
+            [
+                config["label"],
+                f"{baseline_mean:.2f}",
+                f"{final_mean:.2f}",
+                f"{final_mean - baseline_mean:+.2f}",
+                f"{transient_mean:.2f}",
+                f"{transient_mean - baseline_mean:+.2f}",
+                str(sum(delta <= -5 for delta in final_deltas)),
+                str(sum(delta <= -10 for delta in final_deltas)),
+                str(sum(delta <= -10 for delta in transient_deltas)),
+                str(sum(delta >= 5 for delta in final_deltas)),
+            ]
+        )
+    return rows
+
+
+def retain_top_drop_table(baseline_row: dict, order_rows: dict[str, list[dict]], limit: int = 15) -> list[list[str]]:
+    items = []
+    for class_id in RETAIN_CLASS_IDS:
+        transient_deltas = {
+            key: worst_transient_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        }
+        final_deltas = {
+            key: final_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        }
+        worst_order = min(transient_deltas, key=transient_deltas.get)
+        items.append((transient_deltas[worst_order], class_id, worst_order, final_deltas, transient_deltas))
+    rows = []
+    for _, class_id, worst_order, final_deltas, transient_deltas in sorted(items)[:limit]:
+        rows.append(
+            [
+                any_class_label(class_id),
+                f"{class_accuracy(baseline_row, class_id):.1f}",
+                ORDER_CONFIGS[worst_order]["label"],
+                f"{transient_deltas[worst_order]:+.1f}",
+                f"{final_deltas['normal']:+.1f}",
+                f"{final_deltas['clustered']:+.1f}",
+                f"{final_deltas['interleaved']:+.1f}",
+            ]
+        )
+    return rows
+
+
+def retain_class_impact_table(baseline_row: dict, order_rows: dict[str, list[dict]]) -> list[list[str]]:
+    rows = []
+    for class_id in RETAIN_CLASS_IDS:
+        final_deltas = [
+            final_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        ]
+        transient_deltas = [
+            worst_transient_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        ]
+        rows.append(
+            [
+                any_class_label(class_id),
+                "retain",
+                f"{class_accuracy(baseline_row, class_id):.1f}",
+                f"{class_accuracy(order_rows['normal'][-1], class_id):.1f}",
+                f"{final_deltas[0]:+.1f}",
+                f"{transient_deltas[0]:+.1f}",
+                f"{class_accuracy(order_rows['clustered'][-1], class_id):.1f}",
+                f"{final_deltas[1]:+.1f}",
+                f"{transient_deltas[1]:+.1f}",
+                f"{class_accuracy(order_rows['interleaved'][-1], class_id):.1f}",
+                f"{final_deltas[2]:+.1f}",
+                f"{transient_deltas[2]:+.1f}",
+                delta_status(final_deltas, transient_deltas, is_forgotten=False),
+            ]
+        )
+    return rows
+
+
+def forgotten_class_baseline_impact_table(baseline_row: dict, order_rows: dict[str, list[dict]]) -> list[list[str]]:
+    rows = []
+    for class_id in PILOT_CLASS_IDS:
+        final_deltas = [
+            final_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        ]
+        transient_deltas = [
+            worst_transient_delta(order_rows, baseline_row, key, class_id)
+            for key in ORDER_CONFIGS
+        ]
+        rows.append(
+            [
+                any_class_label(class_id),
+                "forgotten target",
+                f"{class_accuracy(baseline_row, class_id):.1f}",
+                f"{class_accuracy(order_rows['normal'][-1], class_id):.1f}",
+                f"{final_deltas[0]:+.1f}",
+                f"{class_accuracy(order_rows['clustered'][-1], class_id):.1f}",
+                f"{final_deltas[1]:+.1f}",
+                f"{class_accuracy(order_rows['interleaved'][-1], class_id):.1f}",
+                f"{final_deltas[2]:+.1f}",
+                delta_status(final_deltas, transient_deltas, is_forgotten=True),
+            ]
+        )
+    return rows
+
+
 def smoke_table(smoke_progress: dict[str, list[dict]]) -> list[list[str]]:
     return [
         [config["label"], config["smoke_run_id"], smoke_status(smoke_progress[key])]
@@ -844,6 +1171,7 @@ def smoke_table(smoke_progress: dict[str, list[dict]]) -> list[list[str]]:
 def write_report(
     report_path: Path,
     output_dir: Path,
+    baseline_row: dict,
     order_rows: dict[str, list[dict]],
     order_progress: dict[str, list[dict]],
     smoke_progress: dict[str, list[dict]],
@@ -863,9 +1191,12 @@ def write_report(
 5. Aggregate metrics：用 final metrics 和 step-wise curves 檢查整體 forgetting / retain tradeoff。
 6. Immediate lag analysis：用 newly forgotten class 當步 accuracy 判斷是否有當步遺忘失效。
 7. Residual / rebound analysis：檢查 old forgotten classes 後續是否回升，重點分析 class 21。
-8. Class-wise / group-wise trajectories：看 20 個 pilot classes 與 4 個 semantic groups 的變化。
-9. Runtime and smoke gate：確認 smoke-first queue 成功與 runtime 成本。
-10. Conclusion：整理本次 CIFAR-100 pilot 對後續實驗設計的意義。
+8. Class-wise trajectories：看 20 個 pilot classes 的逐類變化。
+9. Group-wise trajectories：看 4 個 semantic groups 的平均變化。
+10. Retain-class impact analysis：和 CIFAR-100 baseline 比較，分析 unlearning 是否影響其他 80 類原本準確率。
+11. Runtime and smoke gate：確認 smoke-first queue 成功與 runtime 成本。
+12. Additional tables：補充 top rebound / per-class 表格。
+13. Conclusion：整理本次 CIFAR-100 pilot 對後續實驗設計的意義。
 
 ## 1. Executive Summary
 
@@ -874,6 +1205,8 @@ def write_report(
 若採用原先定義的 failure 標準，也就是 newly forgotten class 在當步 accuracy `>10%`，三條 order 都沒有 failure。`Normal / Clustered / Interleaved` 的 lag steps 都是 `0`，worst newly forgotten class accuracy 都只有 `2.0%`。這表示當某個 class 被指定 forget 的那一步，SalUn / RL unlearning 幾乎都能立即把該 class 壓到接近 0。
 
 但若用更嚴格的 final per-class 檢查，`class 21` 在三條 order 最後仍高於或接近 `10%`：`Normal=17.0%`、`Clustered=11.0%`、`Interleaved=11.0%`。因此本次真正看到的不是「當步忘不掉」，而是「已忘 class 在後續 sequential steps 中被 shared representation / decision boundary 漂移帶回一點」的 rebound / residual 現象。
+
+同時，若把三條 order 的 final checkpoint 和 CIFAR-100 original baseline 做 per-class 對照，80 個未被指定 forget 的 retain classes 沒有出現整體崩壞：平均 final retain accuracy 比 baseline 約高 `+0.58 ~ +0.85` 個百分點。不過逐類檢查仍看到少數 transient interference：部分 retain classes 在 20-step 過程中的最低 accuracy 曾比 baseline 低超過 `10pp`，但 final 多數會恢復。因此 retain-side 風險比較像「局部、短暫、class-specific 的震盪」，不是全面 accuracy collapse。
 
 ## 2. Experiment Setup
 
@@ -1123,7 +1456,47 @@ Clustered 的 group mean 最能呈現「同語義群連續施壓」效果。某�
 
 Interleaved 的 group mean 較分散，因為每個 group 的 forget pressure 被拆開。即使如此，newly forgotten class 仍能被有效壓低，代表目前超參下 immediate forgetting 能力足夠強，沒有被 heterogeneous order 明顯破壞。
 
-## 10. Runtime and Smoke Gate
+## 10. Retain-Class Impact vs Original Baseline
+
+本節回答另一個問題：在 unlearning 20 個 animal classes 的過程中，模型是否傷到「其他原本不該忘的類別」？分析方式是把 `CIFAR-100 original baseline` 的每個 class accuracy 當作參考點，和三條 order 的每一步 per-class accuracy 比較。
+
+這裡分成兩個指標。`final delta` 是 final checkpoint accuracy 減 baseline accuracy，用來看最後是否留下 retain-side 損傷。`worst transient delta` 是 20 steps 過程中該 class 的最低 accuracy 減 baseline accuracy，用來看中途是否曾被 unlearning 暫時干擾。因為 CIFAR-100 每個 fine class test set 約 100 張圖，所以 `1pp` 大約就是 1 張圖；因此小於 `3pp` 的變化不宜過度解讀，`>=10pp` 的 drop 才比較值得標記。
+
+### 10.1 Retain-Side Summary
+
+{markdown_table(["Order", "Baseline retain mean", "Final retain mean", "Final delta", "Worst-step retain mean", "Worst-step delta", "Final drop >=5pp", "Final drop >=10pp", "Any-step drop >=10pp", "Final gain >=5pp"], retain_impact_summary_table(baseline_row, order_rows))}
+
+這張表顯示，80 個未被指定 forget 的 retain classes 在 final checkpoint 並沒有整體崩壞。三條 order 的 final retain mean 都略高於 baseline retain mean，表示 final endpoint 的 retain side 仍穩定。這和前面的 aggregate retain accuracy 結論一致：unlearning 不是靠把整個模型弄壞來達成 forgetting。
+
+但 `worst-step delta` 提醒我們，過程中仍有 class-specific transient interference。Normal 有 4 個 retain classes 曾在某一步低於 baseline `10pp` 以上，Clustered 有 8 個，Interleaved 有 4 個。這些 case 多數 final 會回到接近 baseline，因此不應被解讀成 persistent retain failure；它們更像 sequential updates 造成的短期邊界震盪。
+
+![Retain-Class Delta Heatmap]({fig_link(output_dir, "retain_class_delta_heatmap.png")})
+
+這張 heatmap 把 80 個 retain classes 的 final delta 與 worst transient delta 放在一起看。若只看 final rows，顏色大多接近中性，代表最後 retain side 沒有系統性下降；若看 worst rows，可以看到少數 class 在某些 order 中短暫變暗，表示中途曾有較明顯 accuracy drop。
+
+![Retain Worst Temporary Drops]({fig_link(output_dir, "retain_worst_temporary_drops.png")})
+
+這張 bar chart 列出 transient drop 最大的 retain classes。最明顯的例子包括 `palm_tree (56)`、`tractor (89)`、`willow_tree (96)`、`train (90)` 等；它們不是本次 forget target，但在某些 step 會被 shared representation / classifier boundary drift 暫時影響。需要注意的是，這些類別 final delta 通常沒有同等幅度的下降，代表大多是 temporary interference。
+
+### 10.2 Retain Classes with Largest Temporary Drops
+
+{markdown_table(["Class", "Baseline", "Worst order", "Worst transient delta", "Normal final delta", "Clustered final delta", "Interleaved final delta"], retain_top_drop_table(baseline_row, order_rows, limit=20))}
+
+這張表把「過程中曾掉最多」的 retain classes 抽出來看。它回答的是：即使 final retain accuracy 看起來穩，哪些類別在 sequential unlearning 過程中曾被短暫傷到？例如 `palm_tree (56)` 在 Normal 中 worst transient delta 達到 `-18pp`，但 final delta 是 `0pp`；`tractor (89)` 在 Interleaved 中 worst transient delta 達到 `-16pp`，但 final delta 只有 `-2pp`。這種 pattern 支持「短期 boundary drift」而不是「永久 retain forgetting」的解讀。
+
+### 10.3 Detailed Retain-Class Table
+
+{markdown_table(["Class", "Role", "Baseline", "Normal final", "N final Δ", "N worst Δ", "Clustered final", "C final Δ", "C worst Δ", "Interleaved final", "I final Δ", "I worst Δ", "Status"], retain_class_impact_table(baseline_row, order_rows))}
+
+這張表逐一列出所有 80 個非 target classes。`Status` 的判讀規則是：final 任一 order 低於 baseline `10pp` 以上標為 `final drop`；若 final 沒有明顯掉，但過程中曾低於 baseline `10pp` 以上，標為 `transient drop`；若 final 有 `>=5pp` 提升，標為 `final gain`；其餘則視為大致 stable。從這張表看，本次 retain-side 主要問題不是 final drop，而是少數 class 的 transient drop。
+
+### 10.4 Forgotten Target Classes vs Baseline
+
+{markdown_table(["Class", "Role", "Baseline", "Normal final", "N final Δ", "Clustered final", "C final Δ", "Interleaved final", "I final Δ", "Status"], forgotten_class_baseline_impact_table(baseline_row, order_rows))}
+
+這張表把 20 個 target classes 也放回 baseline 對照。這些類別的 large negative delta 是預期行為，代表 unlearning 成功壓低原本分類能力；因此不能和 retain classes 的 drop 混在一起解讀。比較值得注意的是 `chimpanzee / 黑猩猩 (21)`：它相對 baseline 仍大幅下降，但 final accuracy 沒有像多數 forgotten classes 一樣接近 `0%`，所以它同時屬於「有被忘」和「有 residual / rebound」的 case。
+
+## 11. Runtime and Smoke Gate
 
 Smoke gate 結果如下：
 
@@ -1141,7 +1514,7 @@ stacked runtime 圖顯示每一步主要成本來自 unlearn stage，mask 和 ev
 
 stage breakdown 進一步確認 unlearn 是主成本。由於 eval 已經使用較大 batch size，後續如果要縮短總時間，最有效的策略會是減少 unlearn epochs、調整 data loading，或只對特定 checkpoint 做更密集 eval。
 
-## 11. Additional Tables
+## 12. Additional Tables
 
 ### Top post-forget maximum accuracy
 
@@ -1149,11 +1522,13 @@ stage breakdown 進一步確認 unlearn 是主成本。由於 eval 已經使用�
 
 這張表列出每條 order 中被忘後曾經回升最高的 classes。它比 immediate lag 更敏感，因為它抓的是後續 rebound，而不是當步 forgetting。從這張表可以看出，本次 failure signal 主要不是 newly forgotten class 忘不掉，而是少數 old forgotten classes 在後續被間接帶回。
 
-## 12. Conclusion
+## 13. Conclusion
 
 本次 CIFAR-100 20-step ordered pilot 沒有達到原先期待的 immediate forgetting lag failure：三條 order 的 newly forgotten class 當步 accuracy 全部低於 `10%`，而且 worst case 只有 `2.0%`。這說明在目前 `ResNet-18 / seed 1 / RL-SalUn` 設定下，單步 class forgetting 對 CIFAR-100 animal classes 仍然非常有效。
 
 但本次仍然提供了有價值的 failure hunting 訊號：`class 21` 在三條 order 中都出現 final residual，Normal 最明顯。這表示 sequential unlearning 的風險不一定表現在「當步忘不掉」，也可能表現在「已忘 class 在後續更新中局部 rebound」。因此後續報告應把 failure 分成兩類：immediate lag failure 與 post-forget rebound / residual failure。
+
+從 retain-side baseline impact 來看，本次沒有證據顯示 unlearning 會造成其他 80 類的 final accuracy 全面下降。三條 order 的 final retain mean 都和 CIFAR-100 original baseline 相近甚至略高；比較需要注意的是個別 retain classes 的 transient drop，代表 sequential updates 仍可能短暫擾動 non-target classes。若後續要更精確評估 retain safety，應把 final retain accuracy 和 worst-step per-class drop 同時納入，而不是只看 aggregate retain accuracy。
 
 若後續要更明顯地放大 failure，可以考慮更長的 sequence、更高混淆的 class subset、更多 seeds，或調整 unlearning strength；但在這次 pilot 中，最準確的結論是：**final cumulative forgetting 很好，immediate lag 沒有發生，少數 old forgotten classes 有可觀察的 rebound residual。**
 """
@@ -1168,6 +1543,7 @@ def main() -> None:
 
     eval_root = root / "results/eval"
     logs_root = root / "results/logs"
+    baseline_row = read_eval_row(eval_root / "original" / f"seed{args.seed}_cifar100_baseline.csv")
     order_rows = {}
     order_progress = {}
     smoke_progress = {}
@@ -1202,11 +1578,13 @@ def main() -> None:
     save_rebound_trajectory(output_dir / "class31_rebound_trajectory.png", 31, order_rows)
     save_order_group_timeline(output_dir / "order_group_timeline.png")
     save_retain_forget_tradeoff(output_dir / "retain_vs_forget_tradeoff.png", order_rows)
+    save_retain_delta_heatmap(output_dir / "retain_class_delta_heatmap.png", baseline_row, order_rows)
+    save_retain_worst_drop_bar(output_dir / "retain_worst_temporary_drops.png", baseline_row, order_rows)
     save_runtime_total(output_dir / "runtime_total_by_order.png", order_progress)
     save_runtime_stacked_by_step(output_dir / "runtime_stacked_by_step.png", order_progress)
     save_runtime_stage_breakdown(output_dir / "runtime_stage_breakdown.png", order_progress)
 
-    write_report(args.report_path, output_dir, order_rows, order_progress, smoke_progress)
+    write_report(args.report_path, output_dir, baseline_row, order_rows, order_progress, smoke_progress)
 
     print(f"Wrote report: {args.report_path}")
     print(f"Wrote figures: {output_dir}")

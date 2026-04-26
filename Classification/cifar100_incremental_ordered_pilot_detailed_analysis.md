@@ -9,9 +9,12 @@
 5. Aggregate metrics：用 final metrics 和 step-wise curves 檢查整體 forgetting / retain tradeoff。
 6. Immediate lag analysis：用 newly forgotten class 當步 accuracy 判斷是否有當步遺忘失效。
 7. Residual / rebound analysis：檢查 old forgotten classes 後續是否回升，重點分析 class 21。
-8. Class-wise / group-wise trajectories：看 20 個 pilot classes 與 4 個 semantic groups 的變化。
-9. Runtime and smoke gate：確認 smoke-first queue 成功與 runtime 成本。
-10. Conclusion：整理本次 CIFAR-100 pilot 對後續實驗設計的意義。
+8. Class-wise trajectories：看 20 個 pilot classes 的逐類變化。
+9. Group-wise trajectories：看 4 個 semantic groups 的平均變化。
+10. Retain-class impact analysis：和 CIFAR-100 baseline 比較，分析 unlearning 是否影響其他 80 類原本準確率。
+11. Runtime and smoke gate：確認 smoke-first queue 成功與 runtime 成本。
+12. Additional tables：補充 top rebound / per-class 表格。
+13. Conclusion：整理本次 CIFAR-100 pilot 對後續實驗設計的意義。
 
 ## 1. Executive Summary
 
@@ -20,6 +23,8 @@
 若採用原先定義的 failure 標準，也就是 newly forgotten class 在當步 accuracy `>10%`，三條 order 都沒有 failure。`Normal / Clustered / Interleaved` 的 lag steps 都是 `0`，worst newly forgotten class accuracy 都只有 `2.0%`。這表示當某個 class 被指定 forget 的那一步，SalUn / RL unlearning 幾乎都能立即把該 class 壓到接近 0。
 
 但若用更嚴格的 final per-class 檢查，`class 21` 在三條 order 最後仍高於或接近 `10%`：`Normal=17.0%`、`Clustered=11.0%`、`Interleaved=11.0%`。因此本次真正看到的不是「當步忘不掉」，而是「已忘 class 在後續 sequential steps 中被 shared representation / decision boundary 漂移帶回一點」的 rebound / residual 現象。
+
+同時，若把三條 order 的 final checkpoint 和 CIFAR-100 original baseline 做 per-class 對照，80 個未被指定 forget 的 retain classes 沒有出現整體崩壞：平均 final retain accuracy 比 baseline 約高 `+0.58 ~ +0.85` 個百分點。不過逐類檢查仍看到少數 transient interference：部分 retain classes 在 20-step 過程中的最低 accuracy 曾比 baseline 低超過 `10pp`，但 final 多數會恢復。因此 retain-side 風險比較像「局部、短暫、class-specific 的震盪」，不是全面 accuracy collapse。
 
 ## 2. Experiment Setup
 
@@ -304,7 +309,174 @@ Clustered 的 group mean 最能呈現「同語義群連續施壓」效果。某�
 
 Interleaved 的 group mean 較分散，因為每個 group 的 forget pressure 被拆開。即使如此，newly forgotten class 仍能被有效壓低，代表目前超參下 immediate forgetting 能力足夠強，沒有被 heterogeneous order 明顯破壞。
 
-## 10. Runtime and Smoke Gate
+## 10. Retain-Class Impact vs Original Baseline
+
+本節回答另一個問題：在 unlearning 20 個 animal classes 的過程中，模型是否傷到「其他原本不該忘的類別」？分析方式是把 `CIFAR-100 original baseline` 的每個 class accuracy 當作參考點，和三條 order 的每一步 per-class accuracy 比較。
+
+這裡分成兩個指標。`final delta` 是 final checkpoint accuracy 減 baseline accuracy，用來看最後是否留下 retain-side 損傷。`worst transient delta` 是 20 steps 過程中該 class 的最低 accuracy 減 baseline accuracy，用來看中途是否曾被 unlearning 暫時干擾。因為 CIFAR-100 每個 fine class test set 約 100 張圖，所以 `1pp` 大約就是 1 張圖；因此小於 `3pp` 的變化不宜過度解讀，`>=10pp` 的 drop 才比較值得標記。
+
+### 10.1 Retain-Side Summary
+
+| Order | Baseline retain mean | Final retain mean | Final delta | Worst-step retain mean | Worst-step delta | Final drop >=5pp | Final drop >=10pp | Any-step drop >=10pp | Final gain >=5pp |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Normal | 70.80 | 71.38 | +0.58 | 66.74 | -4.06 | 3 | 0 | 4 | 10 |
+| Clustered | 70.80 | 71.65 | +0.85 | 66.66 | -4.14 | 2 | 0 | 8 | 9 |
+| Interleaved | 70.80 | 71.60 | +0.80 | 66.34 | -4.46 | 6 | 0 | 4 | 9 |
+
+這張表顯示，80 個未被指定 forget 的 retain classes 在 final checkpoint 並沒有整體崩壞。三條 order 的 final retain mean 都略高於 baseline retain mean，表示 final endpoint 的 retain side 仍穩定。這和前面的 aggregate retain accuracy 結論一致：unlearning 不是靠把整個模型弄壞來達成 forgetting。
+
+但 `worst-step delta` 提醒我們，過程中仍有 class-specific transient interference。Normal 有 4 個 retain classes 曾在某一步低於 baseline `10pp` 以上，Clustered 有 8 個，Interleaved 有 4 個。這些 case 多數 final 會回到接近 baseline，因此不應被解讀成 persistent retain failure；它們更像 sequential updates 造成的短期邊界震盪。
+
+![Retain-Class Delta Heatmap](./cifar100_incremental_ordered_pilot_detailed_figures/retain_class_delta_heatmap.png)
+
+這張 heatmap 把 80 個 retain classes 的 final delta 與 worst transient delta 放在一起看。若只看 final rows，顏色大多接近中性，代表最後 retain side 沒有系統性下降；若看 worst rows，可以看到少數 class 在某些 order 中短暫變暗，表示中途曾有較明顯 accuracy drop。
+
+![Retain Worst Temporary Drops](./cifar100_incremental_ordered_pilot_detailed_figures/retain_worst_temporary_drops.png)
+
+這張 bar chart 列出 transient drop 最大的 retain classes。最明顯的例子包括 `palm_tree (56)`、`tractor (89)`、`willow_tree (96)`、`train (90)` 等；它們不是本次 forget target，但在某些 step 會被 shared representation / classifier boundary drift 暫時影響。需要注意的是，這些類別 final delta 通常沒有同等幅度的下降，代表大多是 temporary interference。
+
+### 10.2 Retain Classes with Largest Temporary Drops
+
+| Class | Baseline | Worst order | Worst transient delta | Normal final delta | Clustered final delta | Interleaved final delta |
+| --- | --- | --- | --- | --- | --- | --- |
+| palm_tree (56) | 88.0 | Normal | -18.0 | +0.0 | -1.0 | -3.0 |
+| tractor (89) | 85.0 | Interleaved | -16.0 | -1.0 | +0.0 | -2.0 |
+| willow_tree (96) | 63.0 | Normal | -14.0 | -1.0 | +0.0 | -2.0 |
+| train (90) | 85.0 | Normal | -13.0 | -7.0 | -1.0 | -1.0 |
+| oak_tree (52) | 66.0 | Clustered | -12.0 | +0.0 | +5.0 | +2.0 |
+| crocodile (27) | 56.0 | Clustered | -11.0 | +1.0 | -4.0 | -5.0 |
+| beetle (7) | 77.0 | Clustered | -10.0 | -2.0 | +2.0 | +2.0 |
+| bus (13) | 67.0 | Clustered | -10.0 | -3.0 | -3.0 | -3.0 |
+| clock (22) | 68.0 | Interleaved | -10.0 | -3.0 | -2.0 | -5.0 |
+| crab (26) | 64.0 | Normal | -10.0 | -4.0 | -5.0 | -1.0 |
+| motorcycle (48) | 91.0 | Clustered | -10.0 | +2.0 | +0.0 | +1.0 |
+| sunflower (82) | 90.0 | Clustered | -10.0 | +2.0 | +0.0 | +0.0 |
+| sweet_pepper (83) | 68.0 | Clustered | -10.0 | -2.0 | -3.0 | +0.0 |
+| lobster (45) | 64.0 | Interleaved | -9.0 | +3.0 | +1.0 | +0.0 |
+| plate (61) | 65.0 | Normal | -9.0 | -5.0 | -2.0 | -2.0 |
+| ray (67) | 57.0 | Normal | -9.0 | -2.0 | +2.0 | +0.0 |
+| baby (2) | 61.0 | Normal | -8.0 | +0.0 | +3.0 | +4.0 |
+| bee (6) | 82.0 | Clustered | -8.0 | +0.0 | +4.0 | +4.0 |
+| can (16) | 78.0 | Interleaved | -8.0 | -2.0 | -3.0 | -5.0 |
+| house (37) | 77.0 | Interleaved | -8.0 | -2.0 | +1.0 | +2.0 |
+
+這張表把「過程中曾掉最多」的 retain classes 抽出來看。它回答的是：即使 final retain accuracy 看起來穩，哪些類別在 sequential unlearning 過程中曾被短暫傷到？例如 `palm_tree (56)` 在 Normal 中 worst transient delta 達到 `-18pp`，但 final delta 是 `0pp`；`tractor (89)` 在 Interleaved 中 worst transient delta 達到 `-16pp`，但 final delta 只有 `-2pp`。這種 pattern 支持「短期 boundary drift」而不是「永久 retain forgetting」的解讀。
+
+### 10.3 Detailed Retain-Class Table
+
+| Class | Role | Baseline | Normal final | N final Δ | N worst Δ | Clustered final | C final Δ | C worst Δ | Interleaved final | I final Δ | I worst Δ | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| apple (0) | retain | 89.0 | 87.0 | -2.0 | -3.0 | 87.0 | -2.0 | -4.0 | 86.0 | -3.0 | -4.0 | stable |
+| aquarium_fish (1) | retain | 81.0 | 86.0 | +5.0 | -4.0 | 83.0 | +2.0 | -4.0 | 82.0 | +1.0 | -4.0 | final gain |
+| baby (2) | retain | 61.0 | 61.0 | +0.0 | -8.0 | 64.0 | +3.0 | -8.0 | 65.0 | +4.0 | -8.0 | stable |
+| beaver (4) | retain | 60.0 | 77.0 | +17.0 | -3.0 | 77.0 | +17.0 | -3.0 | 77.0 | +17.0 | -4.0 | final gain |
+| bed (5) | retain | 73.0 | 70.0 | -3.0 | -6.0 | 72.0 | -1.0 | -3.0 | 67.0 | -6.0 | -6.0 | mild final drop |
+| bee (6) | retain | 82.0 | 82.0 | +0.0 | -6.0 | 86.0 | +4.0 | -8.0 | 86.0 | +4.0 | -7.0 | stable |
+| beetle (7) | retain | 77.0 | 75.0 | -2.0 | -8.0 | 79.0 | +2.0 | -10.0 | 79.0 | +2.0 | -7.0 | transient drop |
+| bicycle (8) | retain | 83.0 | 83.0 | +0.0 | -3.0 | 86.0 | +3.0 | -3.0 | 89.0 | +6.0 | -4.0 | final gain |
+| bottle (9) | retain | 80.0 | 77.0 | -3.0 | -4.0 | 80.0 | +0.0 | -4.0 | 82.0 | +2.0 | -4.0 | stable |
+| bowl (10) | retain | 45.0 | 52.0 | +7.0 | -4.0 | 50.0 | +5.0 | -3.0 | 53.0 | +8.0 | -2.0 | final gain |
+| boy (11) | retain | 45.0 | 48.0 | +3.0 | -2.0 | 47.0 | +2.0 | -1.0 | 47.0 | +2.0 | -3.0 | stable |
+| bridge (12) | retain | 79.0 | 80.0 | +1.0 | +0.0 | 79.0 | +0.0 | -3.0 | 82.0 | +3.0 | -1.0 | stable |
+| bus (13) | retain | 67.0 | 64.0 | -3.0 | -4.0 | 64.0 | -3.0 | -10.0 | 64.0 | -3.0 | -8.0 | transient drop |
+| butterfly (14) | retain | 55.0 | 65.0 | +10.0 | -1.0 | 64.0 | +9.0 | -1.0 | 65.0 | +10.0 | -1.0 | final gain |
+| can (16) | retain | 78.0 | 76.0 | -2.0 | -7.0 | 75.0 | -3.0 | -5.0 | 73.0 | -5.0 | -8.0 | mild final drop |
+| castle (17) | retain | 79.0 | 81.0 | +2.0 | -1.0 | 85.0 | +6.0 | +0.0 | 82.0 | +3.0 | +0.0 | final gain |
+| caterpillar (18) | retain | 62.0 | 61.0 | -1.0 | -3.0 | 65.0 | +3.0 | -1.0 | 65.0 | +3.0 | -2.0 | stable |
+| chair (20) | retain | 86.0 | 86.0 | +0.0 | -1.0 | 85.0 | -1.0 | -1.0 | 85.0 | -1.0 | -1.0 | stable |
+| clock (22) | retain | 68.0 | 65.0 | -3.0 | -6.0 | 66.0 | -2.0 | -5.0 | 63.0 | -5.0 | -10.0 | transient drop |
+| cloud (23) | retain | 80.0 | 81.0 | +1.0 | -1.0 | 79.0 | -1.0 | -1.0 | 81.0 | +1.0 | +0.0 | stable |
+| cockroach (24) | retain | 78.0 | 80.0 | +2.0 | -5.0 | 80.0 | +2.0 | -1.0 | 80.0 | +2.0 | -4.0 | stable |
+| couch (25) | retain | 55.0 | 60.0 | +5.0 | -2.0 | 61.0 | +6.0 | -2.0 | 59.0 | +4.0 | -2.0 | final gain |
+| crab (26) | retain | 64.0 | 60.0 | -4.0 | -10.0 | 59.0 | -5.0 | -5.0 | 63.0 | -1.0 | -7.0 | transient drop |
+| crocodile (27) | retain | 56.0 | 57.0 | +1.0 | -9.0 | 52.0 | -4.0 | -11.0 | 51.0 | -5.0 | -6.0 | transient drop |
+| cup (28) | retain | 75.0 | 75.0 | +0.0 | -3.0 | 77.0 | +2.0 | -2.0 | 75.0 | +0.0 | -6.0 | stable |
+| dinosaur (29) | retain | 65.0 | 69.0 | +4.0 | -6.0 | 68.0 | +3.0 | -4.0 | 70.0 | +5.0 | -3.0 | final gain |
+| dolphin (30) | retain | 67.0 | 65.0 | -2.0 | -6.0 | 67.0 | +0.0 | -3.0 | 65.0 | -2.0 | -2.0 | stable |
+| flatfish (32) | retain | 61.0 | 63.0 | +2.0 | +0.0 | 63.0 | +2.0 | +0.0 | 67.0 | +6.0 | -3.0 | final gain |
+| forest (33) | retain | 61.0 | 59.0 | -2.0 | -3.0 | 67.0 | +6.0 | -3.0 | 70.0 | +9.0 | -3.0 | final gain |
+| girl (35) | retain | 52.0 | 48.0 | -4.0 | -7.0 | 49.0 | -3.0 | -6.0 | 55.0 | +3.0 | -5.0 | stable |
+| house (37) | retain | 77.0 | 75.0 | -2.0 | -2.0 | 78.0 | +1.0 | -4.0 | 79.0 | +2.0 | -8.0 | stable |
+| keyboard (39) | retain | 80.0 | 80.0 | +0.0 | -3.0 | 79.0 | -1.0 | -4.0 | 80.0 | +0.0 | -4.0 | stable |
+| lamp (40) | retain | 57.0 | 61.0 | +4.0 | +1.0 | 59.0 | +2.0 | +0.0 | 59.0 | +2.0 | +0.0 | stable |
+| lawn_mower (41) | retain | 87.0 | 89.0 | +2.0 | -1.0 | 85.0 | -2.0 | -5.0 | 88.0 | +1.0 | -3.0 | stable |
+| lizard (44) | retain | 44.0 | 49.0 | +5.0 | -6.0 | 44.0 | +0.0 | -8.0 | 39.0 | -5.0 | -7.0 | final gain |
+| lobster (45) | retain | 64.0 | 67.0 | +3.0 | -5.0 | 65.0 | +1.0 | -6.0 | 64.0 | +0.0 | -9.0 | stable |
+| man (46) | retain | 51.0 | 47.0 | -4.0 | -7.0 | 50.0 | -1.0 | -6.0 | 48.0 | -3.0 | -6.0 | stable |
+| maple_tree (47) | retain | 65.0 | 64.0 | -1.0 | -3.0 | 65.0 | +0.0 | -3.0 | 65.0 | +0.0 | -5.0 | stable |
+| motorcycle (48) | retain | 91.0 | 93.0 | +2.0 | +1.0 | 91.0 | +0.0 | -10.0 | 92.0 | +1.0 | -6.0 | transient drop |
+| mountain (49) | retain | 84.0 | 85.0 | +1.0 | -1.0 | 84.0 | +0.0 | -2.0 | 85.0 | +1.0 | -2.0 | stable |
+| mushroom (51) | retain | 71.0 | 75.0 | +4.0 | -3.0 | 74.0 | +3.0 | -3.0 | 73.0 | +2.0 | -3.0 | stable |
+| oak_tree (52) | retain | 66.0 | 66.0 | +0.0 | -5.0 | 71.0 | +5.0 | -12.0 | 68.0 | +2.0 | -12.0 | transient drop |
+| orange (53) | retain | 88.0 | 90.0 | +2.0 | -1.0 | 89.0 | +1.0 | +1.0 | 91.0 | +3.0 | +1.0 | stable |
+| orchid (54) | retain | 82.0 | 79.0 | -3.0 | -7.0 | 80.0 | -2.0 | -3.0 | 79.0 | -3.0 | -4.0 | stable |
+| otter (55) | retain | 41.0 | 50.0 | +9.0 | -1.0 | 54.0 | +13.0 | +0.0 | 51.0 | +10.0 | -2.0 | final gain |
+| palm_tree (56) | retain | 88.0 | 88.0 | +0.0 | -18.0 | 87.0 | -1.0 | -4.0 | 85.0 | -3.0 | -3.0 | transient drop |
+| pear (57) | retain | 80.0 | 77.0 | -3.0 | -4.0 | 76.0 | -4.0 | -6.0 | 77.0 | -3.0 | -5.0 | stable |
+| pickup_truck (58) | retain | 85.0 | 84.0 | -1.0 | -1.0 | 86.0 | +1.0 | -5.0 | 87.0 | +2.0 | -6.0 | stable |
+| pine_tree (59) | retain | 71.0 | 67.0 | -4.0 | -4.0 | 74.0 | +3.0 | -7.0 | 69.0 | -2.0 | -2.0 | stable |
+| plain (60) | retain | 86.0 | 85.0 | -1.0 | -3.0 | 88.0 | +2.0 | -2.0 | 89.0 | +3.0 | -1.0 | stable |
+| plate (61) | retain | 65.0 | 60.0 | -5.0 | -9.0 | 63.0 | -2.0 | -2.0 | 63.0 | -2.0 | -4.0 | mild final drop |
+| poppy (62) | retain | 81.0 | 82.0 | +1.0 | -1.0 | 80.0 | -1.0 | -8.0 | 78.0 | -3.0 | -8.0 | stable |
+| ray (67) | retain | 57.0 | 55.0 | -2.0 | -9.0 | 59.0 | +2.0 | -2.0 | 57.0 | +0.0 | -2.0 | stable |
+| road (68) | retain | 93.0 | 93.0 | +0.0 | -1.0 | 94.0 | +1.0 | -1.0 | 93.0 | +0.0 | -1.0 | stable |
+| rocket (69) | retain | 79.0 | 78.0 | -1.0 | -2.0 | 78.0 | -1.0 | -1.0 | 76.0 | -3.0 | -4.0 | stable |
+| rose (70) | retain | 73.0 | 72.0 | -1.0 | -5.0 | 68.0 | -5.0 | -5.0 | 67.0 | -6.0 | -6.0 | mild final drop |
+| sea (71) | retain | 78.0 | 80.0 | +2.0 | -3.0 | 81.0 | +3.0 | -1.0 | 78.0 | +0.0 | -2.0 | stable |
+| seal (72) | retain | 47.0 | 53.0 | +6.0 | -6.0 | 46.0 | -1.0 | -6.0 | 45.0 | -2.0 | -6.0 | final gain |
+| shark (73) | retain | 56.0 | 56.0 | +0.0 | -2.0 | 60.0 | +4.0 | -3.0 | 59.0 | +3.0 | -4.0 | stable |
+| skyscraper (76) | retain | 89.0 | 89.0 | +0.0 | -3.0 | 87.0 | -2.0 | -2.0 | 89.0 | +0.0 | -1.0 | stable |
+| snail (77) | retain | 63.0 | 62.0 | -1.0 | -5.0 | 61.0 | -2.0 | -2.0 | 59.0 | -4.0 | -4.0 | stable |
+| snake (78) | retain | 60.0 | 62.0 | +2.0 | +0.0 | 59.0 | -1.0 | -6.0 | 61.0 | +1.0 | -6.0 | stable |
+| spider (79) | retain | 70.0 | 74.0 | +4.0 | +0.0 | 72.0 | +2.0 | +1.0 | 73.0 | +3.0 | -2.0 | stable |
+| streetcar (81) | retain | 71.0 | 76.0 | +5.0 | -2.0 | 73.0 | +2.0 | -1.0 | 74.0 | +3.0 | -2.0 | final gain |
+| sunflower (82) | retain | 90.0 | 92.0 | +2.0 | -1.0 | 90.0 | +0.0 | -10.0 | 90.0 | +0.0 | -8.0 | transient drop |
+| sweet_pepper (83) | retain | 68.0 | 66.0 | -2.0 | -3.0 | 65.0 | -3.0 | -10.0 | 68.0 | +0.0 | -4.0 | transient drop |
+| table (84) | retain | 71.0 | 64.0 | -7.0 | -8.0 | 68.0 | -3.0 | -4.0 | 68.0 | -3.0 | -7.0 | mild final drop |
+| tank (85) | retain | 71.0 | 78.0 | +7.0 | +0.0 | 77.0 | +6.0 | -1.0 | 78.0 | +7.0 | +0.0 | final gain |
+| telephone (86) | retain | 70.0 | 69.0 | -1.0 | -7.0 | 66.0 | -4.0 | -5.0 | 72.0 | +2.0 | -6.0 | stable |
+| television (87) | retain | 79.0 | 80.0 | +1.0 | -3.0 | 80.0 | +1.0 | -6.0 | 79.0 | +0.0 | -7.0 | stable |
+| tractor (89) | retain | 85.0 | 84.0 | -1.0 | -8.0 | 85.0 | +0.0 | -12.0 | 83.0 | -2.0 | -16.0 | transient drop |
+| train (90) | retain | 85.0 | 78.0 | -7.0 | -13.0 | 84.0 | -1.0 | -4.0 | 84.0 | -1.0 | -4.0 | transient drop |
+| trout (91) | retain | 79.0 | 78.0 | -1.0 | -6.0 | 77.0 | -2.0 | -4.0 | 78.0 | -1.0 | -4.0 | stable |
+| tulip (92) | retain | 60.0 | 58.0 | -2.0 | -2.0 | 59.0 | -1.0 | -2.0 | 60.0 | +0.0 | -4.0 | stable |
+| turtle (93) | retain | 56.0 | 58.0 | +2.0 | -2.0 | 58.0 | +2.0 | -7.0 | 55.0 | -1.0 | -6.0 | stable |
+| wardrobe (94) | retain | 91.0 | 90.0 | -1.0 | -2.0 | 90.0 | -1.0 | -1.0 | 90.0 | -1.0 | -1.0 | stable |
+| whale (95) | retain | 73.0 | 74.0 | +1.0 | -1.0 | 71.0 | -2.0 | -8.0 | 71.0 | -2.0 | -7.0 | stable |
+| willow_tree (96) | retain | 63.0 | 62.0 | -1.0 | -14.0 | 63.0 | +0.0 | -9.0 | 61.0 | -2.0 | -12.0 | transient drop |
+| woman (98) | retain | 49.0 | 53.0 | +4.0 | -5.0 | 51.0 | +2.0 | -5.0 | 53.0 | +4.0 | -5.0 | stable |
+| worm (99) | retain | 70.0 | 70.0 | +0.0 | -3.0 | 72.0 | +2.0 | +0.0 | 70.0 | +0.0 | -2.0 | stable |
+
+這張表逐一列出所有 80 個非 target classes。`Status` 的判讀規則是：final 任一 order 低於 baseline `10pp` 以上標為 `final drop`；若 final 沒有明顯掉，但過程中曾低於 baseline `10pp` 以上，標為 `transient drop`；若 final 有 `>=5pp` 提升，標為 `final gain`；其餘則視為大致 stable。從這張表看，本次 retain-side 主要問題不是 final drop，而是少數 class 的 transient drop。
+
+### 10.4 Forgotten Target Classes vs Baseline
+
+| Class | Role | Baseline | Normal final | N final Δ | Clustered final | C final Δ | Interleaved final | I final Δ | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bear / 熊 (3) | forgotten target | 52.0 | 6.0 | -46.0 | 7.0 | -45.0 | 10.0 | -42.0 | mostly forgotten |
+| leopard / 豹 (42) | forgotten target | 70.0 | 0.0 | -70.0 | 0.0 | -70.0 | 0.0 | -70.0 | intended forget |
+| lion / 獅子 (43) | forgotten target | 85.0 | 0.0 | -85.0 | 0.0 | -85.0 | 0.0 | -85.0 | intended forget |
+| tiger / 老虎 (88) | forgotten target | 79.0 | 0.0 | -79.0 | 1.0 | -78.0 | 0.0 | -79.0 | intended forget |
+| wolf / 狼 (97) | forgotten target | 77.0 | 0.0 | -77.0 | 0.0 | -77.0 | 0.0 | -77.0 | intended forget |
+| camel / 駱駝 (15) | forgotten target | 75.0 | 4.0 | -71.0 | 1.0 | -74.0 | 3.0 | -72.0 | intended forget |
+| cattle / 牛 (19) | forgotten target | 63.0 | 2.0 | -61.0 | 0.0 | -63.0 | 0.0 | -63.0 | intended forget |
+| chimpanzee / 黑猩猩 (21) | forgotten target | 85.0 | 17.0 | -68.0 | 11.0 | -74.0 | 11.0 | -74.0 | intended forget |
+| elephant / 大象 (31) | forgotten target | 66.0 | 10.0 | -56.0 | 2.0 | -64.0 | 1.0 | -65.0 | intended forget |
+| kangaroo / 袋鼠 (38) | forgotten target | 65.0 | 0.0 | -65.0 | 0.0 | -65.0 | 0.0 | -65.0 | intended forget |
+| fox / 狐狸 (34) | forgotten target | 76.0 | 0.0 | -76.0 | 0.0 | -76.0 | 0.0 | -76.0 | intended forget |
+| porcupine / 豪豬 (63) | forgotten target | 67.0 | 2.0 | -65.0 | 2.0 | -65.0 | 1.0 | -66.0 | intended forget |
+| possum / 負鼠 (64) | forgotten target | 53.0 | 0.0 | -53.0 | 0.0 | -53.0 | 0.0 | -53.0 | intended forget |
+| raccoon / 浣熊 (66) | forgotten target | 80.0 | 0.0 | -80.0 | 0.0 | -80.0 | 0.0 | -80.0 | intended forget |
+| skunk / 臭鼬 (75) | forgotten target | 91.0 | 0.0 | -91.0 | 0.0 | -91.0 | 0.0 | -91.0 | intended forget |
+| hamster / 倉鼠 (36) | forgotten target | 83.0 | 2.0 | -81.0 | 0.0 | -83.0 | 1.0 | -82.0 | intended forget |
+| mouse / 老鼠 (50) | forgotten target | 53.0 | 0.0 | -53.0 | 0.0 | -53.0 | 0.0 | -53.0 | intended forget |
+| rabbit / 兔子 (65) | forgotten target | 58.0 | 1.0 | -57.0 | 0.0 | -58.0 | 1.0 | -57.0 | intended forget |
+| shrew / 鼩鼱 (74) | forgotten target | 50.0 | 0.0 | -50.0 | 0.0 | -50.0 | 0.0 | -50.0 | intended forget |
+| squirrel / 松鼠 (80) | forgotten target | 55.0 | 0.0 | -55.0 | 0.0 | -55.0 | 0.0 | -55.0 | intended forget |
+
+這張表把 20 個 target classes 也放回 baseline 對照。這些類別的 large negative delta 是預期行為，代表 unlearning 成功壓低原本分類能力；因此不能和 retain classes 的 drop 混在一起解讀。比較值得注意的是 `chimpanzee / 黑猩猩 (21)`：它相對 baseline 仍大幅下降，但 final accuracy 沒有像多數 forgotten classes 一樣接近 `0%`，所以它同時屬於「有被忘」和「有 residual / rebound」的 case。
+
+## 11. Runtime and Smoke Gate
 
 Smoke gate 結果如下：
 
@@ -326,7 +498,7 @@ stacked runtime 圖顯示每一步主要成本來自 unlearn stage，mask 和 ev
 
 stage breakdown 進一步確認 unlearn 是主成本。由於 eval 已經使用較大 batch size，後續如果要縮短總時間，最有效的策略會是減少 unlearn epochs、調整 data loading，或只對特定 checkpoint 做更密集 eval。
 
-## 11. Additional Tables
+## 12. Additional Tables
 
 ### Top post-forget maximum accuracy
 
@@ -350,10 +522,12 @@ stage breakdown 進一步確認 unlearn 是主成本。由於 eval 已經使用�
 
 這張表列出每條 order 中被忘後曾經回升最高的 classes。它比 immediate lag 更敏感，因為它抓的是後續 rebound，而不是當步 forgetting。從這張表可以看出，本次 failure signal 主要不是 newly forgotten class 忘不掉，而是少數 old forgotten classes 在後續被間接帶回。
 
-## 12. Conclusion
+## 13. Conclusion
 
 本次 CIFAR-100 20-step ordered pilot 沒有達到原先期待的 immediate forgetting lag failure：三條 order 的 newly forgotten class 當步 accuracy 全部低於 `10%`，而且 worst case 只有 `2.0%`。這說明在目前 `ResNet-18 / seed 1 / RL-SalUn` 設定下，單步 class forgetting 對 CIFAR-100 animal classes 仍然非常有效。
 
 但本次仍然提供了有價值的 failure hunting 訊號：`class 21` 在三條 order 中都出現 final residual，Normal 最明顯。這表示 sequential unlearning 的風險不一定表現在「當步忘不掉」，也可能表現在「已忘 class 在後續更新中局部 rebound」。因此後續報告應把 failure 分成兩類：immediate lag failure 與 post-forget rebound / residual failure。
+
+從 retain-side baseline impact 來看，本次沒有證據顯示 unlearning 會造成其他 80 類的 final accuracy 全面下降。三條 order 的 final retain mean 都和 CIFAR-100 original baseline 相近甚至略高；比較需要注意的是個別 retain classes 的 transient drop，代表 sequential updates 仍可能短暫擾動 non-target classes。若後續要更精確評估 retain safety，應把 final retain accuracy 和 worst-step per-class drop 同時納入，而不是只看 aggregate retain accuracy。
 
 若後續要更明顯地放大 failure，可以考慮更長的 sequence、更高混淆的 class subset、更多 seeds，或調整 unlearning strength；但在這次 pilot 中，最準確的結論是：**final cumulative forgetting 很好，immediate lag 沒有發生，少數 old forgotten classes 有可觀察的 rebound residual。**
