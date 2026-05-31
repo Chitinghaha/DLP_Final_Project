@@ -1,8 +1,19 @@
 # Classification 實驗總覽導航
 
+## 關鍵結果摘要
+
+目前 Classification 實驗的核心結論是：sequential unlearning 的主要問題不是單步忘不掉，而是連續步驟中「已忘類別如何被維持」的問題。實驗脈絡從舊版資料流程造成的 recovery，逐步推進到正確 incremental data flow 下的 immediate forgetting lag 與 CIFAR-100 post-forget rebound。
+
+- **Baseline**：CIFAR-10 / ResNet-18 / seed 1 原始模型 full test accuracy 為 `94.52%`，作為後續 retain accuracy 與 forgetting 結果的主要參考。
+- **舊版 sequential (`full_seed1_k9`)**：每一步新 class 幾乎都能在當步被壓低，但因已 forgotten data 會回到後續訓練流程，早期 forgotten classes 明顯 recovery；final step9 的 UA 只剩 `16.80%`。
+- **修正版 sequential**：`sequential_cumulative` 與 `sequential_incremental` 都能避免舊 forgotten classes 被重新學回來；其中 `incremental` 更符合「舊 forgotten data 不再參與後續訓練」的問題定義，且 runtime 較短：`1731s`，相較 cumulative 的 `2730s` 少約 `36.6%`。
+- **CIFAR-10 ordered incremental**：在正確 incremental data flow 下，forget order 主要影響的是 immediate forgetting lag 出現在哪些 step、需要多久收斂；`Normal`、`Clustered`、`Interleaved` 最終都能達到完整 forgetting，但中間軌跡不同。
+- **CIFAR-100 ordered pilot**：三條 order 的 newly forgotten class 當步 accuracy 都低於 `10%`，沒有 immediate lag failure；真正值得注意的是少數 old forgotten classes 的 post-forget rebound，尤其 `class 21 (chimpanzee)` final residual：`Normal=17.0%`、`Clustered=11.0%`、`Interleaved=11.0%`。
+- **目前主線判斷**：若要選擇最符合研究問題的主線方法，優先採用 `sequential_incremental`；若要研究 failure mode，則依序看舊版 recovery、CIFAR-10 ordered lag、CIFAR-100 rebound。
+
 ## 1. 總覽摘要
 
-這份文件是 `Unlearn-Saliency-original/Classification/` 目前正式實驗的總入口，目的是回答三個問題：
+這份文件是 `DLP_Final_Project_publish_20260424/Classification/` 目前正式實驗的總入口，目的是回答三個問題：
 
 1. 目前做過哪些正式實驗？
 2. 每條實驗線各自在解什麼問題？
