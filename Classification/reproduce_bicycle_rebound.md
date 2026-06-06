@@ -1,37 +1,32 @@
-# Reproduce CIFAR-100 Bicycle Rebound
+# 重現 CIFAR-100 Bicycle Rebound
 
-This note explains how to reproduce one representative CIFAR-100 `vehicles_1` rebound run:
+這份文件說明如何只跑一條代表性的 CIFAR-100 `vehicles_1` 實驗，重現 `bicycle / 腳踏車 (8)` 被忘記後又回升的現象。
 
 ```text
-vehicles1_official_seed1_k5
+Run ID: vehicles1_official_seed1_k5
 FORGET_ORDER = 8,13,48,58,90
-classes = bicycle, bus, motorcycle, pickup_truck, train
+類別順序 = bicycle, bus, motorcycle, pickup_truck, train
 ```
 
-The key result is that `bicycle / class 8` is forgotten at step 1, but its test accuracy rebounds after later vehicle classes are forgotten.
+重點結果是：`bicycle / 腳踏車 (8)` 在 step 1 被忘記後，test accuracy 會先降到接近 0%，但後續繼續忘其他車輛類別時又逐步 rebound。
 
-## Required Model File
+## 需要的模型參數
 
-The run starts from the CIFAR-100 ResNet-18 original model:
+這個實驗需要 CIFAR-100 / ResNet-18 / seed 1 的 original baseline model：
 
 ```text
 0model_SA_best.pth.tar
 ```
 
-Expected file info:
+檔案大小約 `86 MB`。可以用雲端硬碟傳給對方。
 
-```text
-size: about 86 MB
-sha256: f57cde233ad7aba1cc0f07aa02d61ccc39b59e83c88b6e5811ba8c8b3a7371b3
-```
-
-Share this file through cloud storage, then place it under:
+下載後請放到：
 
 ```text
 Classification/results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
 ```
 
-From the repository root, the final path should look like:
+從 repo root 來看，位置應該像這樣：
 
 ```text
 DLP_Final_Project_publish_20260424/
@@ -42,31 +37,19 @@ DLP_Final_Project_publish_20260424/
                 └── 0model_SA_best.pth.tar
 ```
 
-If downloading from a cloud URL:
+如果是從雲端連結下載，可以執行：
 
 ```bash
 cd /path/to/DLP_Final_Project_publish_20260424/Classification
 mkdir -p results/original/cifar100_resnet18_seed1
 
-# Replace MODEL_URL with the shared cloud download URL.
+# 將 MODEL_URL 換成雲端下載連結
 wget -O results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar "MODEL_URL"
 ```
 
-Verify the model file:
+## 建立環境
 
-```bash
-sha256sum results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
-```
-
-The hash should be:
-
-```text
-f57cde233ad7aba1cc0f07aa02d61ccc39b59e83c88b6e5811ba8c8b3a7371b3
-```
-
-## Environment
-
-From `Classification/`:
+進到 `Classification/`：
 
 ```bash
 cd /path/to/DLP_Final_Project_publish_20260424/Classification
@@ -74,11 +57,17 @@ bash scripts/setup_venv.sh
 source .venv/bin/activate
 ```
 
-CIFAR-100 will be downloaded automatically by the scripts if it is not already present.
+如果本機沒有 CIFAR-100，程式會自動下載。
 
-## Run One Reproduction Experiment
+## 跑單一重現實驗
 
-This runs only the official `vehicles_1` order:
+以下只跑 official `vehicles_1` 順序，也就是：
+
+```text
+bicycle -> bus -> motorcycle -> pickup_truck -> train
+```
+
+執行：
 
 ```bash
 RESULT_NAMESPACE=sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5 \
@@ -95,25 +84,25 @@ ORIGINAL_MODEL=results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar \
 bash scripts/run_incremental_ordered_logged.sh
 ```
 
-Meaning of the order:
+順序說明：
 
 | Step | Newly forgotten class |
 | --- | --- |
-| 1 | bicycle (8) |
-| 2 | bus (13) |
-| 3 | motorcycle (48) |
-| 4 | pickup_truck (58) |
-| 5 | train (90) |
+| 1 | bicycle / 腳踏車 (8) |
+| 2 | bus / 公車 (13) |
+| 3 | motorcycle / 摩托車 (48) |
+| 4 | pickup_truck / 皮卡車 (58) |
+| 5 | train / 火車 (90) |
 
-## Check The Bicycle Rebound
+## 檢查 Bicycle Rebound
 
-After the run finishes, the eval CSV files should be under:
+跑完後，evaluation CSV 會在：
 
 ```text
 results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/
 ```
 
-Print the step-wise `bicycle / class_8_accuracy`:
+可以用以下指令列出每一步的 `bicycle / class_8_accuracy`：
 
 ```bash
 python - <<'PY'
@@ -144,21 +133,21 @@ for step, path in enumerate(files, start=1):
 PY
 ```
 
-Expected pattern from the original run:
+原始實驗觀察到的趨勢：
 
 | Step | Forgotten so far | bicycle accuracy |
 | --- | --- | --- |
-| 1 | 8 | about 0% |
-| 2 | 8,13 | about 22% |
-| 3 | 8,13,48 | about 29% |
-| 4 | 8,13,48,58 | about 41% |
-| 5 | 8,13,48,58,90 | about 43% |
+| 1 | 8 | 約 0% |
+| 2 | 8,13 | 約 22% |
+| 3 | 8,13,48 | 約 29% |
+| 4 | 8,13,48,58 | 約 41% |
+| 5 | 8,13,48,58,90 | 約 43% |
 
-Small numerical differences can happen across hardware or library versions, but the key pattern should remain: bicycle is suppressed at step 1 and rebounds after later vehicle unlearning steps.
+不同硬體或套件版本可能造成小幅差異，但關鍵現象應該一致：`bicycle` 在 step 1 被壓到接近 0%，後續忘其他車輛類別後又回升。
 
-## Output Locations
+## 輸出位置
 
-Useful files after the run:
+跑完後主要檔案會在：
 
 ```text
 results/logs/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/progress.csv
@@ -167,8 +156,8 @@ results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_official_see
 results/masks/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/seed1/step*_forget_*/with_0.5.pt
 ```
 
-## Notes
+## 補充
 
-- This reproduces only one representative run, not the full 9-run single-coarse probe.
-- The original report also ran `vehicles1_random_seed1_k5` and `vehicles1_hardfirst_seed1_k5`; both showed the same bicycle rebound pattern.
-- The experiment uses CIFAR-100 test split for the reported per-class accuracy.
+- 這份文件只重現一條代表性 run，不會跑完整 9 條 single-coarse probe。
+- 原始報告另外也跑了 `vehicles1_random_seed1_k5` 和 `vehicles1_hardfirst_seed1_k5`，兩者也都觀察到 bicycle rebound。
+- 報告中的 per-class accuracy 使用 CIFAR-100 test split。
