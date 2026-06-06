@@ -1,0 +1,46 @@
+group,group_zh,order_type,run_id,class_id,class,forget_step,accuracy_at_forget,max_later_accuracy,final_accuracy,immediate_lag,significant_rebound,final_residual
+large_omnivores_and_herbivores,大型雜食/草食動物,official,large_omni_official_seed1_k5,15,駱駝 / camel (15),1,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,official,large_omni_official_seed1_k5,19,牛 / cattle (19),2,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,official,large_omni_official_seed1_k5,21,黑猩猩 / chimpanzee (21),3,0.0,1.0,1.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,official,large_omni_official_seed1_k5,31,大象 / elephant (31),4,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,official,large_omni_official_seed1_k5,38,袋鼠 / kangaroo (38),5,0.0,,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,random,large_omni_random_seed1_k5,21,黑猩猩 / chimpanzee (21),1,0.0,4.0,3.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,random,large_omni_random_seed1_k5,15,駱駝 / camel (15),2,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,random,large_omni_random_seed1_k5,38,袋鼠 / kangaroo (38),3,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,random,large_omni_random_seed1_k5,19,牛 / cattle (19),4,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,random,large_omni_random_seed1_k5,31,大象 / elephant (31),5,0.0,,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,hardfirst,large_omni_hardfirst_seed1_k5,19,牛 / cattle (19),1,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,hardfirst,large_omni_hardfirst_seed1_k5,38,袋鼠 / kangaroo (38),2,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,hardfirst,large_omni_hardfirst_seed1_k5,31,大象 / elephant (31),3,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,hardfirst,large_omni_hardfirst_seed1_k5,15,駱駝 / camel (15),4,0.0,0.0,0.0,False,False,False
+large_omnivores_and_herbivores,大型雜食/草食動物,hardfirst,large_omni_hardfirst_seed1_k5,21,黑猩猩 / chimpanzee (21),5,0.0,,0.0,False,False,False
+vehicles_1,車輛 1,official,vehicles1_official_seed1_k5,8,腳踏車 / bicycle (8),1,0.0,43.0,43.0,False,True,True
+vehicles_1,車輛 1,official,vehicles1_official_seed1_k5,13,公車 / bus (13),2,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,official,vehicles1_official_seed1_k5,48,摩托車 / motorcycle (48),3,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,official,vehicles1_official_seed1_k5,58,皮卡車 / pickup_truck (58),4,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,official,vehicles1_official_seed1_k5,90,火車 / train (90),5,0.0,,0.0,False,False,False
+vehicles_1,車輛 1,random,vehicles1_random_seed1_k5,48,摩托車 / motorcycle (48),1,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,random,vehicles1_random_seed1_k5,8,腳踏車 / bicycle (8),2,2.0,41.0,40.0,False,True,True
+vehicles_1,車輛 1,random,vehicles1_random_seed1_k5,90,火車 / train (90),3,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,random,vehicles1_random_seed1_k5,13,公車 / bus (13),4,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,random,vehicles1_random_seed1_k5,58,皮卡車 / pickup_truck (58),5,0.0,,0.0,False,False,False
+vehicles_1,車輛 1,hardfirst,vehicles1_hardfirst_seed1_k5,13,公車 / bus (13),1,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,hardfirst,vehicles1_hardfirst_seed1_k5,8,腳踏車 / bicycle (8),2,1.0,48.0,48.0,False,True,True
+vehicles_1,車輛 1,hardfirst,vehicles1_hardfirst_seed1_k5,58,皮卡車 / pickup_truck (58),3,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,hardfirst,vehicles1_hardfirst_seed1_k5,90,火車 / train (90),4,0.0,0.0,0.0,False,False,False
+vehicles_1,車輛 1,hardfirst,vehicles1_hardfirst_seed1_k5,48,摩托車 / motorcycle (48),5,0.0,,0.0,False,False,False
+flowers,花卉,official,flowers_official_seed1_k5,54,蘭花 / orchid (54),1,0.0,0.0,0.0,False,False,False
+flowers,花卉,official,flowers_official_seed1_k5,62,罌粟花 / poppy (62),2,0.0,0.0,0.0,False,False,False
+flowers,花卉,official,flowers_official_seed1_k5,70,玫瑰 / rose (70),3,0.0,0.0,0.0,False,False,False
+flowers,花卉,official,flowers_official_seed1_k5,82,向日葵 / sunflower (82),4,0.0,0.0,0.0,False,False,False
+flowers,花卉,official,flowers_official_seed1_k5,92,鬱金香 / tulip (92),5,0.0,,0.0,False,False,False
+flowers,花卉,random,flowers_random_seed1_k5,70,玫瑰 / rose (70),1,0.0,0.0,0.0,False,False,False
+flowers,花卉,random,flowers_random_seed1_k5,54,蘭花 / orchid (54),2,0.0,0.0,0.0,False,False,False
+flowers,花卉,random,flowers_random_seed1_k5,92,鬱金香 / tulip (92),3,0.0,0.0,0.0,False,False,False
+flowers,花卉,random,flowers_random_seed1_k5,62,罌粟花 / poppy (62),4,0.0,0.0,0.0,False,False,False
+flowers,花卉,random,flowers_random_seed1_k5,82,向日葵 / sunflower (82),5,0.0,,0.0,False,False,False
+flowers,花卉,hardfirst,flowers_hardfirst_seed1_k5,92,鬱金香 / tulip (92),1,0.0,0.0,0.0,False,False,False
+flowers,花卉,hardfirst,flowers_hardfirst_seed1_k5,70,玫瑰 / rose (70),2,0.0,0.0,0.0,False,False,False
+flowers,花卉,hardfirst,flowers_hardfirst_seed1_k5,62,罌粟花 / poppy (62),3,0.0,0.0,0.0,False,False,False
+flowers,花卉,hardfirst,flowers_hardfirst_seed1_k5,54,蘭花 / orchid (54),4,0.0,0.0,0.0,False,False,False
+flowers,花卉,hardfirst,flowers_hardfirst_seed1_k5,82,向日葵 / sunflower (82),5,0.0,,0.0,False,False,False

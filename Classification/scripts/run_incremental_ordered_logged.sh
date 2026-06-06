@@ -17,11 +17,41 @@ MASK_EPOCHS="${MASK_EPOCHS:-1}"
 BATCH_SIZE="${BATCH_SIZE:-1024}"
 MAX_K="${MAX_K:-9}"
 MONITOR_INTERVAL="${MONITOR_INTERVAL:-30}"
-RESULT_NAMESPACE="${RESULT_NAMESPACE:-sequential_incremental_ordered}"
+RESUME="${RESUME:-0}"
+START_STEP="${START_STEP:-1}"
+START_STAGE="${START_STAGE:-mask}"
+
+default_result_namespace() {
+  case "${DATASET}" in
+    cifar100)
+      echo "sequential_incremental_ordered_cifar100_pilot"
+      ;;
+    *)
+      echo "sequential_incremental_ordered"
+      ;;
+  esac
+}
+
+default_original_model() {
+  case "${DATASET}" in
+    cifar100)
+      echo "results/original/cifar100_resnet18_seed${SEED}/0model_SA_best.pth.tar"
+      ;;
+    cifar10)
+      echo "results/original/cifar10_resnet18_seed${SEED}/0model_SA_best.pth.tar"
+      ;;
+    *)
+      echo "results/original/${DATASET}_${ARCH}_seed${SEED}/0model_SA_best.pth.tar"
+      ;;
+  esac
+}
+
+RESULT_NAMESPACE="${RESULT_NAMESPACE:-$(default_result_namespace)}"
 FORGET_ORDER="${FORGET_ORDER:-}"
-RUN_ID="${RUN_ID:-incremental_ordered_seed${SEED}_k${MAX_K}_$(date +%Y%m%d_%H%M%S)}"
+RUN_ID="${RUN_ID:-incremental_ordered_${DATASET}_seed${SEED}_k${MAX_K}_$(date +%Y%m%d_%H%M%S)}"
 LOG_DIR="${LOG_DIR:-results/logs/${RESULT_NAMESPACE}/${RUN_ID}}"
-ORIGINAL_MODEL="${ORIGINAL_MODEL:-results/original/cifar10_resnet18_seed${SEED}/0model_SA_best.pth.tar}"
+ORIGINAL_MODEL="${ORIGINAL_MODEL:-$(default_original_model)}"
+START_MODEL="${START_MODEL:-${ORIGINAL_MODEL}}"
 
 MASK_ROOT="results/masks/${RESULT_NAMESPACE}"
 UNLEARN_ROOT="results/unlearn/${RESULT_NAMESPACE}/seed${SEED}"
@@ -33,8 +63,17 @@ SUMMARY_LOG="${LOG_DIR}/summary.log"
 PROGRESS_CSV="${LOG_DIR}/progress.csv"
 GPU_CSV="${LOG_DIR}/gpu_monitor.csv"
 
-echo "timestamp,step,stage,forgotten_classes,new_class,status,start_time,end_time,duration_sec,eta_next_stage_sec,eta_remaining_sec,checkpoint_path,log_path" > "${PROGRESS_CSV}"
-echo "timestamp,gpu_index,utilization_gpu,memory_used_mb,memory_free_mb,temperature_c,power_draw_w" > "${GPU_CSV}"
+if [[ "${RESUME}" == "1" && -f "${PROGRESS_CSV}" ]]; then
+  :
+else
+  echo "timestamp,step,stage,forgotten_classes,new_class,status,start_time,end_time,duration_sec,eta_next_stage_sec,eta_remaining_sec,checkpoint_path,log_path" > "${PROGRESS_CSV}"
+fi
+
+if [[ "${RESUME}" == "1" && -f "${GPU_CSV}" ]]; then
+  :
+else
+  echo "timestamp,gpu_index,utilization_gpu,memory_used_mb,memory_free_mb,temperature_c,power_draw_w" > "${GPU_CSV}"
+fi
 
 log_summary() {
   local message="$1"
@@ -42,6 +81,10 @@ log_summary() {
 }
 
 write_env() {
+  local env_path="${LOG_DIR}/env.txt"
+  if [[ "${RESUME}" == "1" ]]; then
+    env_path="${LOG_DIR}/env_resume_$(date +%Y%m%d_%H%M%S).txt"
+  fi
   {
     echo "date: $(date)"
     echo "hostname: $(hostname)"
@@ -65,7 +108,7 @@ write_env() {
     echo
     echo "disk:"
     df -h "${ROOT_DIR}"
-  } > "${LOG_DIR}/env.txt" 2>&1
+  } > "${env_path}" 2>&1
 }
 
 monitor_gpu() {
@@ -183,7 +226,7 @@ trap 'kill "${MONITOR_PID}" 2>/dev/null || true' EXIT
 
 log_summary "Run directory: ${LOG_DIR}"
 log_summary "Original model: ${ORIGINAL_MODEL}"
-log_summary "Settings: SEED=${SEED} GPU=${GPU} ARCH=${ARCH} DATASET=${DATASET} MAX_K=${MAX_K} UNLEARN_EPOCHS=${UNLEARN_EPOCHS} BATCH_SIZE=${BATCH_SIZE} RESULT_NAMESPACE=${RESULT_NAMESPACE}"
+log_summary "Settings: SEED=${SEED} GPU=${GPU} ARCH=${ARCH} DATASET=${DATASET} MAX_K=${MAX_K} UNLEARN_EPOCHS=${UNLEARN_EPOCHS} BATCH_SIZE=${BATCH_SIZE} RESULT_NAMESPACE=${RESULT_NAMESPACE} RESUME=${RESUME} START_STEP=${START_STEP} START_STAGE=${START_STAGE}"
 log_summary "Forget order: ${FORGET_ORDER:-default_ascending}"
 
 IFS=',' read -r -a FORGET_ORDER_ARRAY <<< "${FORGET_ORDER}"
@@ -194,17 +237,68 @@ if [[ -n "${FORGET_ORDER}" ]]; then
   fi
 fi
 
-current_model="${ORIGINAL_MODEL}"
-forgotten_order=()
+case "${START_STAGE}" in
+  mask|unlearn|eval) ;;
+  *)
+    echo "START_STAGE must be one of: mask, unlearn, eval; got ${START_STAGE}" >&2
+    exit 1
+    ;;
+esac
 
-for step in $(seq 1 "${MAX_K}"); do
+if (( START_STEP < 1 || START_STEP > MAX_K )); then
+  echo "START_STEP must be within 1..MAX_K (${MAX_K}); got ${START_STEP}" >&2
+  exit 1
+fi
+
+if [[ "${RESUME}" == "1" && ! -f "${START_MODEL}" ]]; then
+  echo "START_MODEL does not exist: ${START_MODEL}" >&2
+  exit 1
+fi
+
+current_model="${START_MODEL}"
+log_summary "Start model: ${current_model}"
+
+join_classes_through_step() {
+  local last_step="$1"
+  local values=()
+  local index
+  local class_id
+  for index in $(seq 0 $((last_step - 1))); do
+    if [[ -n "${FORGET_ORDER}" ]]; then
+      class_id="${FORGET_ORDER_ARRAY[${index}]}"
+    else
+      class_id="${index}"
+    fi
+    values+=("${class_id}")
+  done
+  local IFS=,
+  echo "${values[*]}"
+}
+
+stage_index() {
+  case "$1" in
+    mask) echo 0 ;;
+    unlearn) echo 1 ;;
+    eval) echo 2 ;;
+  esac
+}
+
+should_run_stage() {
+  local step="$1"
+  local stage="$2"
+  if (( step != START_STEP )); then
+    return 0
+  fi
+  (( $(stage_index "${stage}") >= $(stage_index "${START_STAGE}") ))
+}
+
+for step in $(seq "${START_STEP}" "${MAX_K}"); do
   if [[ -n "${FORGET_ORDER}" ]]; then
     new_class="${FORGET_ORDER_ARRAY[$((step - 1))]}"
   else
     new_class=$((step - 1))
   fi
-  forgotten_order+=("${new_class}")
-  forgotten="$(IFS=,; echo "${forgotten_order[*]}")"
+  forgotten="$(join_classes_through_step "${step}")"
   slug="${forgotten//,/_}"
   mask_dir="${MASK_ROOT}/seed${SEED}/step${step}_forget_${new_class}"
   save_dir="${UNLEARN_ROOT}/step${step}_forgot_${slug}"
@@ -214,48 +308,60 @@ for step in $(seq 1 "${MAX_K}"); do
   eval_log="${LOG_DIR}/step${step}_eval.log"
   mkdir -p "${mask_dir}" "${save_dir}" "$(dirname "${eval_csv}")"
 
-  run_stage "${step}" "mask" "${forgotten}" "${new_class}" "${mask_dir}/with_${MASK_RATIO}.pt" "${mask_log}" \
-    python generate_mask.py \
-      --arch "${ARCH}" \
-      --dataset "${DATASET}" \
-      --class_to_replace "${new_class}" \
-      --model_path "${current_model}" \
-      --save_dir "${mask_dir}" \
-      --unlearn_lr "${UNLEARN_LR}" \
-      --unlearn_epochs "${MASK_EPOCHS}" \
-      --batch_size "${BATCH_SIZE}" \
-      --gpu "${GPU}" \
-      --seed "${SEED}"
+  if should_run_stage "${step}" "mask"; then
+    run_stage "${step}" "mask" "${forgotten}" "${new_class}" "${mask_dir}/with_${MASK_RATIO}.pt" "${mask_log}" \
+      python generate_mask.py \
+        --arch "${ARCH}" \
+        --dataset "${DATASET}" \
+        --class_to_replace "${new_class}" \
+        --model_path "${current_model}" \
+        --save_dir "${mask_dir}" \
+        --unlearn_lr "${UNLEARN_LR}" \
+        --unlearn_epochs "${MASK_EPOCHS}" \
+        --batch_size "${BATCH_SIZE}" \
+        --gpu "${GPU}" \
+        --seed "${SEED}"
+  else
+    log_summary "SKIP step=${step} stage=mask forgotten=${forgotten} new_class=${new_class}"
+  fi
 
-  run_stage "${step}" "unlearn" "${forgotten}" "${new_class}" "${save_dir}/RLcheckpoint.pth.tar" "${unlearn_log}" \
-    python main_random.py \
-      --arch "${ARCH}" \
-      --dataset "${DATASET}" \
-      --unlearn RL \
-      --class_to_replace "${new_class}" \
-      --classes_to_replace "${forgotten}" \
-      --incremental_forget_only \
-      --model_path "${current_model}" \
-      --mask_path "${mask_dir}/with_${MASK_RATIO}.pt" \
-      --save_dir "${save_dir}" \
-      --unlearn_lr "${UNLEARN_LR}" \
-      --unlearn_epochs "${UNLEARN_EPOCHS}" \
-      --batch_size "${BATCH_SIZE}" \
-      --gpu "${GPU}" \
-      --seed "${SEED}"
+  if should_run_stage "${step}" "unlearn"; then
+    run_stage "${step}" "unlearn" "${forgotten}" "${new_class}" "${save_dir}/RLcheckpoint.pth.tar" "${unlearn_log}" \
+      python main_random.py \
+        --arch "${ARCH}" \
+        --dataset "${DATASET}" \
+        --unlearn RL \
+        --class_to_replace "${new_class}" \
+        --classes_to_replace "${forgotten}" \
+        --incremental_forget_only \
+        --model_path "${current_model}" \
+        --mask_path "${mask_dir}/with_${MASK_RATIO}.pt" \
+        --save_dir "${save_dir}" \
+        --unlearn_lr "${UNLEARN_LR}" \
+        --unlearn_epochs "${UNLEARN_EPOCHS}" \
+        --batch_size "${BATCH_SIZE}" \
+        --gpu "${GPU}" \
+        --seed "${SEED}"
+  else
+    log_summary "SKIP step=${step} stage=unlearn forgotten=${forgotten} new_class=${new_class}"
+  fi
 
   current_model="${save_dir}/RLcheckpoint.pth.tar"
 
-  run_stage "${step}" "eval" "${forgotten}" "${new_class}" "${eval_csv}" "${eval_log}" \
-    python scripts/evaluate_cumulative_forgetting.py \
-      --arch "${ARCH}" \
-      --dataset "${DATASET}" \
-      --model_path "${current_model}" \
-      --forgotten_classes "${forgotten}" \
-      --batch_size "${BATCH_SIZE}" \
-      --gpu "${GPU}" \
-      --seed "${SEED}" \
-      --output "${eval_csv}"
+  if should_run_stage "${step}" "eval"; then
+    run_stage "${step}" "eval" "${forgotten}" "${new_class}" "${eval_csv}" "${eval_log}" \
+      python scripts/evaluate_cumulative_forgetting.py \
+        --arch "${ARCH}" \
+        --dataset "${DATASET}" \
+        --model_path "${current_model}" \
+        --forgotten_classes "${forgotten}" \
+        --batch_size "${BATCH_SIZE}" \
+        --gpu "${GPU}" \
+        --seed "${SEED}" \
+        --output "${eval_csv}"
+  else
+    log_summary "SKIP step=${step} stage=eval forgotten=${forgotten} new_class=${new_class}"
+  fi
 done
 
 log_summary "DONE all incremental ordered stages"

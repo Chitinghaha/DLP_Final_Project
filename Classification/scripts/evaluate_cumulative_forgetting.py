@@ -1,16 +1,31 @@
 #!/usr/bin/env python
 import argparse
 import csv
-import os
 from pathlib import Path
 
 import numpy as np
 import torch
 from torchvision import transforms
-from torchvision.datasets import CIFAR10
+from torchvision.datasets import CIFAR10, CIFAR100
 
 from models import model_dict
 from utils import NormalizeByChannelMeanStd, setup_seed
+
+
+DATASET_CONFIGS = {
+    "cifar10": {
+        "dataset_cls": CIFAR10,
+        "mean": [0.4914, 0.4822, 0.4465],
+        "std": [0.2470, 0.2435, 0.2616],
+        "num_classes": 10,
+    },
+    "cifar100": {
+        "dataset_cls": CIFAR100,
+        "mean": [0.5071, 0.4866, 0.4409],
+        "std": [0.2673, 0.2564, 0.2762],
+        "num_classes": 100,
+    },
+}
 
 
 def parse_classes(value):
@@ -20,7 +35,11 @@ def parse_classes(value):
 def parse_args():
     parser = argparse.ArgumentParser(description="Evaluate cumulative class forgetting")
     parser.add_argument("--model_path", required=True)
-    parser.add_argument("--forgotten_classes", required=True, help="Comma-separated class ids, e.g. 0,1,2")
+    parser.add_argument(
+        "--forgotten_classes",
+        required=True,
+        help="Comma-separated class ids, e.g. 0,1,2",
+    )
     parser.add_argument("--output", required=True)
     parser.add_argument("--arch", default="resnet18")
     parser.add_argument("--dataset", default="cifar10")
@@ -28,17 +47,28 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--num_classes", type=int, default=10)
+    parser.add_argument("--num_classes", type=int, default=None)
     return parser.parse_args()
 
 
-def load_model(args, device):
-    if args.dataset != "cifar10":
-        raise ValueError("This evaluator currently supports CIFAR-10 only.")
+def get_dataset_config(dataset_name):
+    if dataset_name not in DATASET_CONFIGS:
+        raise ValueError(
+            f"Unsupported dataset {dataset_name!r}. "
+            f"Supported: {sorted(DATASET_CONFIGS)}"
+        )
+    return DATASET_CONFIGS[dataset_name]
 
-    model = model_dict[args.arch](num_classes=args.num_classes)
+
+def resolved_num_classes(args, config):
+    return args.num_classes if args.num_classes is not None else config["num_classes"]
+
+
+def load_model(args, device, config):
+    num_classes = resolved_num_classes(args, config)
+    model = model_dict[args.arch](num_classes=num_classes)
     model.normalize = NormalizeByChannelMeanStd(
-        mean=[0.4914, 0.4822, 0.4465], std=[0.2470, 0.2435, 0.2616]
+        mean=config["mean"], std=config["std"]
     )
     checkpoint = torch.load(args.model_path, map_location=device)
     if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
@@ -49,8 +79,8 @@ def load_model(args, device):
     return model
 
 
-def build_test_loader(args):
-    test_set = CIFAR10(
+def build_test_loader(args, config):
+    test_set = config["dataset_cls"](
         args.data,
         train=False,
         transform=transforms.Compose([transforms.ToTensor()]),
@@ -65,28 +95,29 @@ def build_test_loader(args):
     )
 
 
-def evaluate(model, loader, args, device):
-    correct = np.zeros(args.num_classes, dtype=np.int64)
-    total = np.zeros(args.num_classes, dtype=np.int64)
+def evaluate(model, loader, args, device, config):
+    num_classes = resolved_num_classes(args, config)
+    correct = np.zeros(num_classes, dtype=np.int64)
+    total = np.zeros(num_classes, dtype=np.int64)
 
     with torch.no_grad():
         for images, targets in loader:
             images = images.to(device)
             targets = targets.to(device)
             preds = model(images).argmax(dim=1)
-            for class_id in range(args.num_classes):
+            for class_id in range(num_classes):
                 mask = targets == class_id
                 total[class_id] += int(mask.sum().item())
                 correct[class_id] += int((preds[mask] == targets[mask]).sum().item())
 
     per_class = {}
-    for class_id in range(args.num_classes):
+    for class_id in range(num_classes):
         per_class[class_id] = None
         if total[class_id] > 0:
             per_class[class_id] = 100.0 * correct[class_id] / total[class_id]
 
     forgotten = parse_classes(args.forgotten_classes)
-    retain = [class_id for class_id in range(args.num_classes) if class_id not in forgotten]
+    retain = [class_id for class_id in range(num_classes) if class_id not in forgotten]
 
     def grouped_accuracy(classes):
         grouped_total = int(total[classes].sum()) if classes else 0
@@ -133,6 +164,7 @@ def write_csv(result, output):
 
 def main():
     args = parse_args()
+    config = get_dataset_config(args.dataset)
     setup_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu)
@@ -140,13 +172,20 @@ def main():
     else:
         device = torch.device("cpu")
 
-    model = load_model(args, device)
-    loader = build_test_loader(args)
-    result = evaluate(model, loader, args, device)
+    model = load_model(args, device, config)
+    loader = build_test_loader(args, config)
+    result = evaluate(model, loader, args, device, config)
     write_csv(result, args.output)
 
     print("Cumulative forgetting evaluation")
-    for key in ["model_path", "forgotten_classes", "forget_accuracy", "UA", "retain_accuracy", "full_test_accuracy"]:
+    for key in [
+        "model_path",
+        "forgotten_classes",
+        "forget_accuracy",
+        "UA",
+        "retain_accuracy",
+        "full_test_accuracy",
+    ]:
         print(f"{key}: {result[key]}")
     for class_id, accuracy in result["per_class_accuracy"].items():
         print(f"class_{class_id}_accuracy: {accuracy}")
