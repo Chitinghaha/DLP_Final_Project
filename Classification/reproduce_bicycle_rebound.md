@@ -1,53 +1,34 @@
 # 重現 CIFAR-100 Bicycle Rebound
 
-這份文件說明如何只跑一條代表性的 CIFAR-100 `vehicles_1` 實驗，重現 `bicycle / 腳踏車 (8)` 被忘記後又回升的現象。
+這份文件說明如何重現 CIFAR-100 `vehicles_1` 中 `bicycle / 腳踏車 (8)` 被忘記後又回升的現象。
+
+## 9 條實驗中問題最大的一條
+
+9 條 single-coarse runs 裡，問題最明顯的是：
 
 ```text
-Run ID: vehicles1_official_seed1_k5
-FORGET_ORDER = 8,13,48,58,90
-類別順序 = bicycle, bus, motorcycle, pickup_truck, train
+Run ID: vehicles1_hardfirst_seed1_k5
+FORGET_ORDER = 13,8,58,90,48
+類別順序 = bus, bicycle, pickup_truck, train, motorcycle
 ```
 
-重點結果是：`bicycle / 腳踏車 (8)` 在 step 1 被忘記後，test accuracy 會先降到接近 0%，但後續繼續忘其他車輛類別時又逐步 rebound。
+選這條的原因：
 
-## 需要的模型參數
+| 指標 | 數值 |
+| --- | --- |
+| Final forget acc | 9.6% |
+| Final retain acc | 70.3% |
+| Final full test acc | 67.3% |
+| bicycle forget step accuracy | 1.0% |
+| bicycle final accuracy | 48.0% |
 
-這個實驗需要 CIFAR-100 / ResNet-18 / seed 1 的 original baseline model：
+也就是說，`bicycle (8)` 在 step 2 被忘記時 accuracy 已經降到 `1.0%`，但 final step 又回到 `48.0%`。這是 9 條實驗中 bicycle final residual 最高的一條，所以最適合拿來展示 rebound 問題。
 
-```text
-0model_SA_best.pth.tar
-```
+## 方法一：重新跑 Unlearning 實驗
 
-檔案大小約 `86 MB`。可以用雲端硬碟傳給對方。
+這個方法會從 CIFAR-100 original model 開始，重新跑 `vehicles1_hardfirst_seed1_k5`。
 
-下載後請放到：
-
-```text
-Classification/results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
-```
-
-從 repo root 來看，位置應該像這樣：
-
-```text
-DLP_Final_Project_publish_20260424/
-└── Classification/
-    └── results/
-        └── original/
-            └── cifar100_resnet18_seed1/
-                └── 0model_SA_best.pth.tar
-```
-
-如果是從雲端連結下載，可以執行：
-
-```bash
-cd /path/to/DLP_Final_Project_publish_20260424/Classification
-mkdir -p results/original/cifar100_resnet18_seed1
-
-# 將 MODEL_URL 換成雲端下載連結
-wget -O results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar "MODEL_URL"
-```
-
-## 建立環境
+### 1. 建立環境
 
 進到 `Classification/`：
 
@@ -59,19 +40,50 @@ source .venv/bin/activate
 
 如果本機沒有 CIFAR-100，程式會自動下載。
 
-## 跑單一重現實驗
+### 2. 準備 Original Model
 
-以下只跑 official `vehicles_1` 順序，也就是：
+這個實驗需要 CIFAR-100 / ResNet-18 / seed 1 的 original baseline model：
 
 ```text
-bicycle -> bus -> motorcycle -> pickup_truck -> train
+results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
 ```
+
+如果要自己重新 train original model，執行：
+
+```bash
+python main_train.py \
+  --arch resnet18 \
+  --dataset cifar100 \
+  --lr 0.1 \
+  --epochs 182 \
+  --save_dir results/original/cifar100_resnet18_seed1 \
+  --gpu 0 \
+  --seed 1 \
+  --train_seed 1 \
+  --batch_size 256
+```
+
+訓練完成後，應該會產生：
+
+```text
+results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
+results/original/cifar100_resnet18_seed1/0checkpoint.pth.tar
+results/original/cifar100_resnet18_seed1/0net_train.png
+```
+
+如果已經有 original model，也可以直接放到：
+
+```text
+Classification/results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar
+```
+
+### 3. 跑問題最明顯的 hardfirst order
 
 執行：
 
 ```bash
-RESULT_NAMESPACE=sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5 \
-RUN_ID=vehicles1_official_seed1_k5 \
+RESULT_NAMESPACE=sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5 \
+RUN_ID=vehicles1_hardfirst_seed1_k5 \
 SEED=1 \
 GPU=0 \
 DATASET=cifar100 \
@@ -79,7 +91,7 @@ MAX_K=5 \
 BATCH_SIZE=2048 \
 UNLEARN_EPOCHS=10 \
 MASK_EPOCHS=1 \
-FORGET_ORDER=8,13,48,58,90 \
+FORGET_ORDER=13,8,58,90,48 \
 ORIGINAL_MODEL=results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar \
 bash scripts/run_incremental_ordered_logged.sh
 ```
@@ -88,76 +100,116 @@ bash scripts/run_incremental_ordered_logged.sh
 
 | Step | Newly forgotten class |
 | --- | --- |
-| 1 | bicycle / 腳踏車 (8) |
-| 2 | bus / 公車 (13) |
-| 3 | motorcycle / 摩托車 (48) |
-| 4 | pickup_truck / 皮卡車 (58) |
-| 5 | train / 火車 (90) |
+| 1 | bus / 公車 (13) |
+| 2 | bicycle / 腳踏車 (8) |
+| 3 | pickup_truck / 皮卡車 (58) |
+| 4 | train / 火車 (90) |
+| 5 | motorcycle / 摩托車 (48) |
 
-## 檢查 Bicycle Rebound
-
-跑完後，evaluation CSV 會在：
+跑完後，final unlearning checkpoint 會在：
 
 ```text
-results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/
+results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48/RLcheckpoint.pth.tar
 ```
 
-可以用以下指令列出每一步的 `bicycle / class_8_accuracy`：
+## 方法二：使用我提供的 Unlearning 後權重
+
+如果不想重新跑 unlearning，我會用雲端提供這個 final unlearning checkpoint：
+
+```text
+RLcheckpoint.pth.tar
+```
+
+它對應的是：
+
+```text
+vehicles1_hardfirst_seed1_k5
+step5_forgot_13_8_58_90_48
+```
+
+檔案大小約 `43 MB`。
+
+下載後請放到：
+
+```text
+Classification/results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48/RLcheckpoint.pth.tar
+```
+
+從 repo root 來看，位置應該像這樣：
+
+```text
+DLP_Final_Project_publish_20260424/
+└── Classification/
+    └── results/
+        └── unlearn/
+            └── sequential_single_coarse_rebound_cifar100/
+                └── vehicles1_hardfirst_seed1_k5/
+                    └── seed1/
+                        └── step5_forgot_13_8_58_90_48/
+                            └── RLcheckpoint.pth.tar
+```
+
+如果是從雲端連結下載，可以執行：
+
+```bash
+cd /path/to/DLP_Final_Project_publish_20260424/Classification
+mkdir -p results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48
+
+# 將 MODEL_URL 換成雲端下載連結
+wget -O results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48/RLcheckpoint.pth.tar "MODEL_URL"
+```
+
+確認檔案存在：
+
+```bash
+ls -lh results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48/RLcheckpoint.pth.tar
+```
+
+## 評估這個 Unlearning 後權重
+
+如果使用我提供的 `RLcheckpoint.pth.tar`，不需要重跑 unlearning，只要直接 evaluate：
+
+```bash
+python scripts/evaluate_cumulative_forgetting.py \
+  --arch resnet18 \
+  --dataset cifar100 \
+  --gpu 0 \
+  --seed 1 \
+  --batch_size 2048 \
+  --model_path results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1/step5_forgot_13_8_58_90_48/RLcheckpoint.pth.tar \
+  --forgotten_classes 13,8,58,90,48 \
+  --output results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1_step5_forgot_13_8_58_90_48.csv
+```
+
+接著印出 bicycle accuracy：
 
 ```bash
 python - <<'PY'
 import csv
 from pathlib import Path
 
-eval_dir = Path("results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5")
-files = [
-    eval_dir / "seed1_step1_forgot_8.csv",
-    eval_dir / "seed1_step2_forgot_8_13.csv",
-    eval_dir / "seed1_step3_forgot_8_13_48.csv",
-    eval_dir / "seed1_step4_forgot_8_13_48_58.csv",
-    eval_dir / "seed1_step5_forgot_8_13_48_58_90.csv",
-]
+path = Path("results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_hardfirst_seed1_k5/seed1_step5_forgot_13_8_58_90_48.csv")
+with path.open(newline="") as handle:
+    row = next(csv.DictReader(handle))
 
-print("step,bicycle_class_8_accuracy,forget_accuracy,retain_accuracy,full_test_accuracy")
-for step, path in enumerate(files, start=1):
-    with path.open(newline="") as handle:
-        row = next(csv.DictReader(handle))
-    print(
-        step,
-        row["class_8_accuracy"],
-        row["forget_accuracy"],
-        row["retain_accuracy"],
-        row["full_test_accuracy"],
-        sep=",",
-    )
+print("forget_accuracy:", row["forget_accuracy"])
+print("retain_accuracy:", row["retain_accuracy"])
+print("full_test_accuracy:", row["full_test_accuracy"])
+print("bicycle_class_8_accuracy:", row["class_8_accuracy"])
 PY
 ```
 
-原始實驗觀察到的趨勢：
-
-| Step | Forgotten so far | bicycle accuracy |
-| --- | --- | --- |
-| 1 | 8 | 約 0% |
-| 2 | 8,13 | 約 22% |
-| 3 | 8,13,48 | 約 29% |
-| 4 | 8,13,48,58 | 約 41% |
-| 5 | 8,13,48,58,90 | 約 43% |
-
-不同硬體或套件版本可能造成小幅差異，但關鍵現象應該一致：`bicycle` 在 step 1 被壓到接近 0%，後續忘其他車輛類別後又回升。
-
-## 輸出位置
-
-跑完後主要檔案會在：
+預期會接近：
 
 ```text
-results/logs/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/progress.csv
-results/eval/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/seed1_step*_forgot_*.csv
-results/unlearn/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/seed1/step*_forgot_*/RLcheckpoint.pth.tar
-results/masks/sequential_single_coarse_rebound_cifar100/vehicles1_official_seed1_k5/seed1/step*_forget_*/with_0.5.pt
+forget_accuracy: 9.6
+retain_accuracy: 70.3
+full_test_accuracy: 67.3
+bicycle_class_8_accuracy: 48.0
 ```
 
 ## 補充
 
-- 這份文件只重現一條代表性 run，不會跑完整 9 條 single-coarse probe。
-- 原始報告另外也跑了 `vehicles1_random_seed1_k5` 和 `vehicles1_hardfirst_seed1_k5`，兩者也都觀察到 bicycle rebound。
+- 這份文件選的是 9 條 single-coarse runs 中問題最大的 `vehicles1_hardfirst_seed1_k5`。
+- 問題大的原因是：`bicycle (8)` 已經在 step 2 被忘到 `1.0%`，但 final 又回升到 `48.0%`。
 - 報告中的 per-class accuracy 使用 CIFAR-100 test split。
