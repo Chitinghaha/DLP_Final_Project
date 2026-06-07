@@ -4,8 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-BASE_NAMESPACE="${BASE_NAMESPACE:-sequential_vehicle_rebound_cause_probe_cifar100}"
-QUEUE_RUN_ID="${QUEUE_RUN_ID:-bicycle_rebound_controls_$(date +%Y%m%d_%H%M%S)}"
+BASE_NAMESPACE="${BASE_NAMESPACE:-sequential_four_coarse_no_flowers_cifar100_k20}"
+QUEUE_RUN_ID="${QUEUE_RUN_ID:-four_coarse_k20_queue_$(date +%Y%m%d_%H%M%S)}"
 QUEUE_LOG_DIR="${QUEUE_LOG_DIR:-results/logs/${BASE_NAMESPACE}/${QUEUE_RUN_ID}}"
 QUEUE_LOG="${QUEUE_LOG_DIR}/queue.log"
 DRY_RUN="${DRY_RUN:-1}"
@@ -13,12 +13,16 @@ DRY_RUN="${DRY_RUN:-1}"
 SEED="${SEED:-1}"
 ARCH="${ARCH:-resnet18}"
 DATASET="${DATASET:-cifar100}"
-MAX_K="${MAX_K:-5}"
+MAX_K="${MAX_K:-20}"
 BATCH_SIZE="${BATCH_SIZE:-2048}"
 UNLEARN_EPOCHS="${UNLEARN_EPOCHS:-10}"
 MASK_EPOCHS="${MASK_EPOCHS:-1}"
 MONITOR_INTERVAL="${MONITOR_INTERVAL:-30}"
 ORIGINAL_MODEL="${ORIGINAL_MODEL:-results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar}"
+
+CLUSTERED_ORDER="8,13,48,58,90,23,33,49,60,71,15,19,21,31,38,12,17,37,68,76"
+INTERLEAVED_ORDER="8,23,15,12,13,33,19,17,48,49,21,37,58,60,31,68,90,71,38,76"
+BLOCK2_ORDER="8,13,23,33,15,19,12,17,48,58,49,60,21,31,37,68,90,71,38,76"
 
 mkdir -p "${QUEUE_LOG_DIR}"
 
@@ -40,6 +44,11 @@ if len(set(items)) != len(items):
 bad = [item for item in items if item < 0 or item > 99]
 if bad:
     raise SystemExit(f"{run_id}: class ids out of range 0..99: {bad}")
+expected = {8,13,48,58,90,23,33,49,60,71,15,19,21,31,38,12,17,37,68,76}
+if set(items) != expected:
+    missing = sorted(expected - set(items))
+    extra = sorted(set(items) - expected)
+    raise SystemExit(f"{run_id}: target set mismatch missing={missing} extra={extra}")
 PY
 }
 
@@ -61,13 +70,12 @@ run_one() {
   local gpu="$1"
   local run_id="$2"
   local order="$3"
-  local hypothesis="$4"
-  local run_unlearn_epochs="${5:-${UNLEARN_EPOCHS}}"
+  local order_type="$4"
   local namespace="${BASE_NAMESPACE}/${run_id}"
   local log_dir="results/logs/${BASE_NAMESPACE}/${run_id}"
 
   validate_order "${run_id}" "${order}"
-  log_queue "START gpu=${gpu} run_id=${run_id} order=${order} hypothesis=${hypothesis} unlearn_epochs=${run_unlearn_epochs}"
+  log_queue "START gpu=${gpu} run_id=${run_id} order_type=${order_type} order=${order}"
 
   if [[ "${DRY_RUN}" == "1" ]]; then
     log_queue "DRY_RUN skip run_id=${run_id}"
@@ -88,7 +96,7 @@ run_one() {
     ARCH="${ARCH}" \
     DATASET="${DATASET}" \
     MAX_K="${MAX_K}" \
-    UNLEARN_EPOCHS="${run_unlearn_epochs}" \
+    UNLEARN_EPOCHS="${UNLEARN_EPOCHS}" \
     MASK_EPOCHS="${MASK_EPOCHS}" \
     BATCH_SIZE="${BATCH_SIZE}" \
     MONITOR_INTERVAL="${MONITOR_INTERVAL}" \
@@ -104,19 +112,21 @@ run_one() {
 }
 
 worker_gpu0() {
-  run_one 0 "bicycle_then_flowers_seed1_k5" "8,54,62,70,82" "non_vehicle_control"
-  run_one 0 "motorcycle_then_vehicles_no_bicycle_seed1_k5" "48,13,58,90,8" "early_motorcycle_exposure"
-  run_one 0 "bicycle_stronger_then_vehicles1_seed1_k5" "8,13,48,58,90" "forget_strength_control" "20"
+  run_one 0 "four_coarse_clustered_seed1_k20" "${CLUSTERED_ORDER}" "clustered"
+  run_one 0 "four_coarse_block2_seed1_k20" "${BLOCK2_ORDER}" "block2"
 }
 
 worker_gpu1() {
-  run_one 1 "bicycle_then_vehicles2_seed1_k5" "8,41,69,81,89" "vehicles2_shared_representation"
-  run_one 1 "pickup_then_vehicles_no_bicycle_seed1_k5" "58,13,48,90,8" "early_pickup_exposure"
+  run_one 1 "four_coarse_interleaved_seed1_k20" "${INTERLEAVED_ORDER}" "interleaved"
 }
 
 log_queue "Queue log directory: ${QUEUE_LOG_DIR}"
-log_queue "Settings: DATASET=${DATASET} SEED=${SEED} ARCH=${ARCH} MAX_K=${MAX_K} BATCH_SIZE=${BATCH_SIZE} BASE_NAMESPACE=${BASE_NAMESPACE} DRY_RUN=${DRY_RUN}"
+log_queue "Settings: DATASET=${DATASET} SEED=${SEED} GPU_SPLIT=0:clustered+block2,1:interleaved ARCH=${ARCH} MAX_K=${MAX_K} BATCH_SIZE=${BATCH_SIZE} BASE_NAMESPACE=${BASE_NAMESPACE} DRY_RUN=${DRY_RUN}"
 log_queue "Original model: ${ORIGINAL_MODEL}"
+
+validate_order "four_coarse_clustered_seed1_k20" "${CLUSTERED_ORDER}"
+validate_order "four_coarse_interleaved_seed1_k20" "${INTERLEAVED_ORDER}"
+validate_order "four_coarse_block2_seed1_k20" "${BLOCK2_ORDER}"
 
 if [[ "${DRY_RUN}" != "1" ]]; then
   if [[ ! -f "${ORIGINAL_MODEL}" ]]; then
@@ -139,6 +149,9 @@ wait "${PID1}" || status1=$?
 log_queue "Worker gpu0 exit_status=${status0}"
 log_queue "Worker gpu1 exit_status=${status1}"
 
-if [[ "${status0}" != "0" || "${status1}" != "0" ]]; then
+if (( status0 != 0 || status1 != 0 )); then
+  log_queue "DONE four coarse k20 queue status=failed"
   exit 1
 fi
+
+log_queue "DONE four coarse k20 queue status=success"

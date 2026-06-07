@@ -1,0 +1,31 @@
+run_id,run_short_name,namespace,step,forgotten_classes,new_class_id,new_class,focus_class_id,focus_class,focus_accuracy,forget_accuracy,retain_accuracy,full_test_accuracy,eval_available
+vehicles1_official_seed1_k5,bicycle -> vehicles1,sequential_single_coarse_rebound_cifar100,1,8,8,腳踏車 / bicycle (8),8,腳踏車 / bicycle (8),0.0,0.0,69.85858585858585,69.16,True
+vehicles1_official_seed1_k5,bicycle -> vehicles1,sequential_single_coarse_rebound_cifar100,2,"8,13",13,公車 / bus (13),8,腳踏車 / bicycle (8),22.0,11.0,70.35714285714286,69.17,True
+vehicles1_official_seed1_k5,bicycle -> vehicles1,sequential_single_coarse_rebound_cifar100,3,"8,13,48",48,摩托車 / motorcycle (48),8,腳踏車 / bicycle (8),29.0,9.666666666666666,70.12371134020619,68.31,True
+vehicles1_official_seed1_k5,bicycle -> vehicles1,sequential_single_coarse_rebound_cifar100,4,"8,13,48,58",58,皮卡車 / pickup_truck (58),8,腳踏車 / bicycle (8),41.0,10.25,70.28125,67.88,True
+vehicles1_official_seed1_k5,bicycle -> vehicles1,sequential_single_coarse_rebound_cifar100,5,"8,13,48,58,90",90,火車 / train (90),8,腳踏車 / bicycle (8),43.0,8.6,70.10526315789474,67.03,True
+bicycle_then_flowers_seed1_k5,bicycle -> flowers,sequential_vehicle_rebound_cause_probe_cifar100,1,8,8,腳踏車 / bicycle (8),8,腳踏車 / bicycle (8),0.0,0.0,69.85858585858585,69.16,True
+bicycle_then_flowers_seed1_k5,bicycle -> flowers,sequential_vehicle_rebound_cause_probe_cifar100,2,"8,54",54,蘭花 / orchid (54),8,腳踏車 / bicycle (8),36.0,18.0,70.06122448979592,69.02,True
+bicycle_then_flowers_seed1_k5,bicycle -> flowers,sequential_vehicle_rebound_cause_probe_cifar100,3,"8,54,62",62,罌粟花 / poppy (62),8,腳踏車 / bicycle (8),26.0,8.666666666666666,70.29896907216495,68.45,True
+bicycle_then_flowers_seed1_k5,bicycle -> flowers,sequential_vehicle_rebound_cause_probe_cifar100,4,"8,54,62,70",70,玫瑰 / rose (70),8,腳踏車 / bicycle (8),36.0,9.0,70.36458333333333,67.91,True
+bicycle_then_flowers_seed1_k5,bicycle -> flowers,sequential_vehicle_rebound_cause_probe_cifar100,5,"8,54,62,70,82",82,向日葵 / sunflower (82),8,腳踏車 / bicycle (8),36.0,7.2,70.32631578947368,67.17,True
+bicycle_then_vehicles2_seed1_k5,bicycle -> vehicles2,sequential_vehicle_rebound_cause_probe_cifar100,1,8,8,腳踏車 / bicycle (8),8,腳踏車 / bicycle (8),0.0,0.0,69.85858585858585,69.16,True
+bicycle_then_vehicles2_seed1_k5,bicycle -> vehicles2,sequential_vehicle_rebound_cause_probe_cifar100,2,"8,41",41,割草機 / lawn_mower (41),8,腳踏車 / bicycle (8),18.0,9.0,69.96938775510205,68.75,True
+bicycle_then_vehicles2_seed1_k5,bicycle -> vehicles2,sequential_vehicle_rebound_cause_probe_cifar100,3,"8,41,69",69,火箭 / rocket (69),8,腳踏車 / bicycle (8),16.0,5.333333333333333,70.18556701030928,68.24,True
+bicycle_then_vehicles2_seed1_k5,bicycle -> vehicles2,sequential_vehicle_rebound_cause_probe_cifar100,4,"8,41,69,81",81,路面電車 / streetcar (81),8,腳踏車 / bicycle (8),22.0,5.5,70.03125,67.45,True
+bicycle_then_vehicles2_seed1_k5,bicycle -> vehicles2,sequential_vehicle_rebound_cause_probe_cifar100,5,"8,41,69,81,89",89,拖拉機 / tractor (89),8,腳踏車 / bicycle (8),27.0,5.4,69.87368421052632,66.65,True
+motorcycle_then_vehicles_no_bicycle_seed1_k5,motorcycle early,sequential_vehicle_rebound_cause_probe_cifar100,1,48,48,摩托車 / motorcycle (48),48,摩托車 / motorcycle (48),0.0,0.0,69.96969696969697,69.27,True
+motorcycle_then_vehicles_no_bicycle_seed1_k5,motorcycle early,sequential_vehicle_rebound_cause_probe_cifar100,2,"48,13",13,公車 / bus (13),48,摩托車 / motorcycle (48),0.0,0.0,70.37755102040816,68.97,True
+motorcycle_then_vehicles_no_bicycle_seed1_k5,motorcycle early,sequential_vehicle_rebound_cause_probe_cifar100,3,"48,13,58",58,皮卡車 / pickup_truck (58),48,摩托車 / motorcycle (48),0.0,0.0,70.52577319587628,68.41,True
+motorcycle_then_vehicles_no_bicycle_seed1_k5,motorcycle early,sequential_vehicle_rebound_cause_probe_cifar100,4,"48,13,58,90",90,火車 / train (90),48,摩托車 / motorcycle (48),0.0,0.0,70.34375,67.53,True
+motorcycle_then_vehicles_no_bicycle_seed1_k5,motorcycle early,sequential_vehicle_rebound_cause_probe_cifar100,5,"48,13,58,90,8",8,腳踏車 / bicycle (8),48,摩托車 / motorcycle (48),0.0,0.2,70.14736842105263,66.65,True
+pickup_then_vehicles_no_bicycle_seed1_k5,pickup early,sequential_vehicle_rebound_cause_probe_cifar100,1,58,58,皮卡車 / pickup_truck (58),58,皮卡車 / pickup_truck (58),0.0,0.0,70.65656565656566,69.95,True
+pickup_then_vehicles_no_bicycle_seed1_k5,pickup early,sequential_vehicle_rebound_cause_probe_cifar100,2,"58,13",13,公車 / bus (13),58,皮卡車 / pickup_truck (58),0.0,0.0,70.62244897959184,69.21,True
+pickup_then_vehicles_no_bicycle_seed1_k5,pickup early,sequential_vehicle_rebound_cause_probe_cifar100,3,"58,13,48",48,摩托車 / motorcycle (48),58,皮卡車 / pickup_truck (58),0.0,0.0,70.28865979381443,68.18,True
+pickup_then_vehicles_no_bicycle_seed1_k5,pickup early,sequential_vehicle_rebound_cause_probe_cifar100,4,"58,13,48,90",90,火車 / train (90),58,皮卡車 / pickup_truck (58),0.0,0.0,70.23958333333333,67.43,True
+pickup_then_vehicles_no_bicycle_seed1_k5,pickup early,sequential_vehicle_rebound_cause_probe_cifar100,5,"58,13,48,90,8",8,腳踏車 / bicycle (8),58,皮卡車 / pickup_truck (58),0.0,0.0,70.01052631578948,66.51,True
+bicycle_stronger_then_vehicles1_seed1_k5,bicycle stronger,sequential_vehicle_rebound_cause_probe_cifar100,1,8,8,腳踏車 / bicycle (8),8,腳踏車 / bicycle (8),14.0,14.0,69.97979797979798,69.42,True
+bicycle_stronger_then_vehicles1_seed1_k5,bicycle stronger,sequential_vehicle_rebound_cause_probe_cifar100,2,"8,13",13,公車 / bus (13),8,腳踏車 / bicycle (8),30.0,15.0,70.62244897959184,69.51,True
+bicycle_stronger_then_vehicles1_seed1_k5,bicycle stronger,sequential_vehicle_rebound_cause_probe_cifar100,3,"8,13,48",48,摩托車 / motorcycle (48),8,腳踏車 / bicycle (8),67.0,22.333333333333332,70.41237113402062,68.97,True
+bicycle_stronger_then_vehicles1_seed1_k5,bicycle stronger,sequential_vehicle_rebound_cause_probe_cifar100,4,"8,13,48,58",58,皮卡車 / pickup_truck (58),8,腳踏車 / bicycle (8),52.0,13.0,70.375,68.08,True
+bicycle_stronger_then_vehicles1_seed1_k5,bicycle stronger,sequential_vehicle_rebound_cause_probe_cifar100,5,"8,13,48,58,90",90,火車 / train (90),8,腳踏車 / bicycle (8),52.0,10.6,70.26315789473684,67.28,True
