@@ -10,6 +10,30 @@
 - Significant post-forget rebound 定義：`max_later_accuracy >= 10%`，且比 `accuracy_at_forget` 至少高 `5pp`。
 - 本報告只分析已完成結果，不重新訓練、不重新 unlearn。
 
+### 實驗參數設定細節
+
+本實驗用 `scripts/run_cifar100_single_coarse_rebound_probe_dualgpu.sh` 啟動 9 條 sequential runs；每條 run 再呼叫 `scripts/run_incremental_ordered_logged.sh`，依序執行 `mask -> unlearn -> eval` 三個 stage。每一步都從前一步輸出的 `RLcheckpoint.pth.tar` 接著做下一個 class，因此這是 sequential unlearning，不是 5 個 class 各自從原始模型獨立 unlearn。
+
+| 類別 | 參數 | 設定值 |
+| --- | --- | --- |
+| Dataset | `DATASET` | `cifar100` |
+| Model | `ARCH` | `resnet18` |
+| Initial checkpoint | `ORIGINAL_MODEL` | `results/original/cifar100_resnet18_seed1/0model_SA_best.pth.tar` |
+| Random seed | `SEED` | `1` |
+| Steps per run | `MAX_K` | `5` |
+| Batch size | `BATCH_SIZE` | `2048` |
+| Mask ratio | `MASK_RATIO` | `0.5`，輸出檔名為 `with_0.5.pt` |
+| Mask generation epochs | `MASK_EPOCHS` | `1` |
+| Unlearn method | `--unlearn` | `RL` |
+| Unlearn epochs | `UNLEARN_EPOCHS` | `10` |
+| Unlearn learning rate | `UNLEARN_LR` | `0.013` |
+| Result namespace | `BASE_NAMESPACE` | `sequential_single_coarse_rebound_cifar100` |
+| GPU scheduling | `GPU` | dual-GPU queue：GPU 0 跑 large_omni 與部分 vehicles_1，GPU 1 跑其餘 vehicles_1 與 flowers |
+
+每一步的資料切分如下。假設第 `t` 步的新忘記類別是 `c_t`，累積 forgotten classes 是 `[c_1, ..., c_t]`：mask stage 用當前模型和 `c_t` 產生 saliency mask；unlearn stage 設定 `--class_to_replace c_t`、`--classes_to_replace c_1,...,c_t` 與 `--incremental_forget_only`。因此 `forget loader` 只含當步新類別 `c_t`，`retain loader` 排除所有累積 forgotten classes，舊 forgotten classes 不會被放回 retain training；CIFAR-100 每個 fine class 在 train split 有 500 張，所以每一步 forget set 約 500 張，retain set 會隨累積 forgotten classes 增加而遞減。
+
+evaluation stage 使用 CIFAR-100 test split (`train=False`) 逐類計算 accuracy，並輸出 `results/eval/<namespace>/<run_id>/seed1_step{t}_forgot_<classes>.csv`。`forget_accuracy` 是累積 forgotten classes 的整體 test accuracy，`retain_accuracy` 是其餘 95 到 99 個 classes 的 test accuracy，`full_test_accuracy` 是全部 100 類 test accuracy。post-forget rebound 只統計「已被忘記且後面還有 later steps 可觀察」的 class；若某 class 在最後一步才被忘，沒有 later step，就不能計入 rebound rate，只能看 final residual。
+
 ## 整體結果
 
 - 9 條 run 全部完成：`9/9`。

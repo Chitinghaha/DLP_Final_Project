@@ -628,6 +628,20 @@ def mask_jaccard(mask_a: dict[str, torch.Tensor], mask_b: dict[str, torch.Tensor
     return None if union == 0 else inter / union
 
 
+def mask_coverage(mask_a: dict[str, torch.Tensor], mask_b: dict[str, torch.Tensor]) -> float | None:
+    keys = sorted(set(mask_a).intersection(mask_b))
+    if not keys:
+        return None
+    inter = 0
+    universe = 0
+    for key in keys:
+        a = mask_a[key].bool().view(-1)
+        b = mask_b[key].bool().view(-1)
+        inter += int((a & b).sum().item())
+        universe += a.numel()
+    return None if universe == 0 else inter / universe
+
+
 def load_state_dict(path: Path) -> dict[str, torch.Tensor]:
     checkpoint = torch.load(path, map_location="cpu")
     return checkpoint.get("state_dict", checkpoint) if isinstance(checkpoint, dict) else checkpoint
@@ -785,6 +799,38 @@ def forgotten_mask_overlap_rows(root: Path, base_namespace: str) -> tuple[list[d
             }
         )
     return detail_rows, per_run_summary_rows, aggregate_rows
+
+
+def bicycle_mask_every_step_rows(root: Path, base_namespace: str) -> list[dict]:
+    rows = []
+    for run in RUNS:
+        masks = {}
+        for step in range(1, 6):
+            class_id = run.order[step - 1]
+            mpath = mask_path(root, base_namespace, run, step)
+            masks[step] = torch.load(mpath, map_location="cpu") if mpath.exists() else None
+
+        bicycle_forget_step = run.order.index(8) + 1
+        bicycle_mask = masks[bicycle_forget_step]
+        for step in range(1, 6):
+            compare_mask = masks[step]
+            rows.append(
+                {
+                    "run_id": run.run_id,
+                    "order_type": run.order_type,
+                    "bicycle_forget_step": bicycle_forget_step,
+                    "compare_step": step,
+                    "compare_class_id": run.order[step - 1],
+                    "compare_class": label(run.order[step - 1]),
+                    "jaccard_with_bicycle": None
+                    if bicycle_mask is None or compare_mask is None
+                    else mask_jaccard(bicycle_mask, compare_mask),
+                    "coverage_with_bicycle": None
+                    if bicycle_mask is None or compare_mask is None
+                    else mask_coverage(bicycle_mask, compare_mask),
+                }
+            )
+    return rows
 
 
 def plot_mask_delta(mask_rows: list[dict], figure_dir: Path) -> None:
@@ -1202,6 +1248,20 @@ def forgotten_mask_detail_table(detail_rows: list[dict], base_class_id: int | No
     return rows
 
 
+def bicycle_mask_every_step_table(rows: list[dict]) -> list[list[object]]:
+    return [
+        [
+            order_zh(row["order_type"]),
+            row["bicycle_forget_step"],
+            row["compare_step"],
+            row["compare_class"],
+            fmt(row["jaccard_with_bicycle"], 3),
+            fmt(row["coverage_with_bicycle"], 3),
+        ]
+        for row in rows
+    ]
+
+
 def forgotten_mask_summary_table(summary_rows: list[dict]) -> list[list[object]]:
     rows = []
     for row in summary_rows:
@@ -1270,6 +1330,7 @@ def build_report(
     pca_info: dict,
     mask_rows: list[dict],
     forgotten_mask_detail_rows: list[dict],
+    bicycle_mask_every_step_rows: list[dict],
     forgotten_mask_per_run_rows: list[dict],
     forgotten_mask_aggregate_rows: list[dict],
     weight_rows: list[dict],
@@ -1458,6 +1519,22 @@ def build_report(
             forgotten_mask_summary_table(forgotten_mask_per_run_rows),
         ),
         "",
+        "**Bicycle mask vs every step mask：**",
+        "",
+        markdown_table(
+            [
+                "順序",
+                "Bicycle forget step",
+                "Compare step",
+                "Compare class",
+                "Jaccard with bicycle mask",
+                "Coverage with bicycle mask",
+            ],
+            bicycle_mask_every_step_table(bicycle_mask_every_step_rows),
+        ),
+        "",
+        "**數據說明：**這張 every-step 表固定使用每條 run 裡 bicycle 被忘當下的 mask 當基準，和同一條 run 的每個 step mask 比較。Coverage 定義為 `|A ∩ B| / |U|`，也就是兩個 mask 都選到的參數數量除以整個可選參數宇集；self row 的 Jaccard 是 `1.000`，Coverage 是 `0.500`，對應 mask ratio `0.5`。",
+        "",
         "**Bicycle mask vs later masks：**",
         "",
         markdown_table(
@@ -1510,6 +1587,7 @@ def main() -> None:
         args.root,
         args.base_namespace,
     )
+    bicycle_every_step_rows = bicycle_mask_every_step_rows(args.root, args.base_namespace)
     weight_rows = classifier_weight_rows(args.root, args.base_namespace, args.baseline_model)
     write_csv(args.per_sample_csv, analysis["per_sample_rows"])
     write_csv(args.class_summary_csv, analysis["class_summary_rows"])
@@ -1527,6 +1605,7 @@ def main() -> None:
             pca_info,
             mask_rows,
             forgotten_mask_detail_rows,
+            bicycle_every_step_rows,
             forgotten_mask_per_run_rows,
             forgotten_mask_aggregate_rows,
             weight_rows,

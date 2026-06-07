@@ -261,6 +261,28 @@
 | 困難優先 | 皮卡車 / pickup_truck (58) | 3 | 2 | 4,5 | 0.512 | 0.515 |
 | 困難優先 | 火車 / train (90) | 4 | 1 | 5 | 0.491 | 0.491 |
 
+**Bicycle mask vs every step mask：**
+
+| 順序 | Bicycle forget step | Compare step | Compare class | Jaccard with bicycle mask | Coverage with bicycle mask |
+| --- | --- | --- | --- | --- | --- |
+| 官方順序 | 1 | 1 | 腳踏車 / bicycle (8) | 1.000 | 0.500 |
+| 官方順序 | 1 | 2 | 公車 / bus (13) | 0.472 | 0.320 |
+| 官方順序 | 1 | 3 | 摩托車 / motorcycle (48) | 0.515 | 0.340 |
+| 官方順序 | 1 | 4 | 皮卡車 / pickup_truck (58) | 0.496 | 0.332 |
+| 官方順序 | 1 | 5 | 火車 / train (90) | 0.470 | 0.320 |
+| 隨機順序 | 2 | 1 | 摩托車 / motorcycle (48) | 0.514 | 0.340 |
+| 隨機順序 | 2 | 2 | 腳踏車 / bicycle (8) | 1.000 | 0.500 |
+| 隨機順序 | 2 | 3 | 火車 / train (90) | 0.459 | 0.314 |
+| 隨機順序 | 2 | 4 | 公車 / bus (13) | 0.499 | 0.333 |
+| 隨機順序 | 2 | 5 | 皮卡車 / pickup_truck (58) | 0.526 | 0.345 |
+| 困難優先 | 2 | 1 | 公車 / bus (13) | 0.464 | 0.317 |
+| 困難優先 | 2 | 2 | 腳踏車 / bicycle (8) | 1.000 | 0.500 |
+| 困難優先 | 2 | 3 | 皮卡車 / pickup_truck (58) | 0.478 | 0.323 |
+| 困難優先 | 2 | 4 | 火車 / train (90) | 0.467 | 0.318 |
+| 困難優先 | 2 | 5 | 摩托車 / motorcycle (48) | 0.512 | 0.338 |
+
+**數據說明：**這張 every-step 表固定使用每條 run 裡 bicycle 被忘當下的 mask 當基準，和同一條 run 的每個 step mask 比較。Coverage 定義為 `|A ∩ B| / |U|`，也就是兩個 mask 都選到的參數數量除以整個可選參數宇集；self row 的 Jaccard 是 `1.000`，Coverage 是 `0.500`，對應 mask ratio `0.5`。
+
 **Bicycle mask vs later masks：**
 
 | 順序 | Base class | Forget step | Later step | Later class | Jaccard |
@@ -280,6 +302,25 @@
 
 **結論：**`bicycle` 的平均 later-mask Jaccard 是 `0.489`，其他類別平均是 `0.515`，其他類別最高平均是 `0.523`。bicycle 並沒有明顯高於其他 vehicles_1 類別，因此 mask overlap 目前只能當輔助證據；更主要的解釋仍是 bicycle 在 forget step 後保留較強 top-k signal 與 feature-space vehicle representation。
 
+## 已驗證與尚未驗證的結論
+
+目前可以用現有 3 條 `vehicles_1` runs 和 checkpoints 支持的結論如下：
+
+| 命題 | 狀態 | 數據依據 |
+| --- | --- | --- |
+| bicycle 不是當步忘不掉，而是後續 rebound | 已驗證 | bicycle forget step top-1 為 `0/2/1%`，final 回到 `43/40/48%` |
+| bicycle 是 soft-forgotten | 已驗證 | bicycle forget step top-5 為 `35/34/42%`，但 top-1 只有 `0/2/1%` |
+| 其他 vehicles_1 類別多半是 hard-forgotten | 已驗證 | bus / motorcycle / pickup_truck / train 在 forget step 的 top-1 和 top-5 大多都是 `0%` |
+| rebound 不是少數 1-2 張 test samples 造成 | 已驗證 | 三條 run 有 `43/39/47` 張 bicycle test images 從 forget step 錯誤變成 final 正確 |
+| recovered bicycle samples 本來就比較靠近 decision boundary | 已驗證 | recovered samples forget-step margin 約 `-1.64/-1.19/-1.20`，non-recovered 約 `-2.88/-2.34/-2.88` |
+| 「早忘」不是 rebound 的充分條件 | 已驗證 | random 的 motorcycle step1、hardfirst 的 bus step1 都沒有 rebound，final top-1 仍約 `0%` |
+| bicycle mask 和後續 masks 特別重疊 | 不支持 | bicycle average later-mask Jaccard `0.489`，低於其他類別平均約 `0.515` |
+| 後續 vehicle steps 會改變 feature / boundary 狀態 | 有證據支持 | bicycle 最近 vehicle centroid distance 在 final 約 `4.86/4.76/5.00`，且 top-5 / margin / recovery 同時回升 |
+| rebound 是 vehicle-specific causal effect | 尚未驗證 | 需要 `bicycle_then_flowers` 和 `bicycle_then_vehicles2` 控制實驗 |
+| bicycle 視覺特徵分散、class-specific cue 較弱是根本原因 | 尚未驗證 | 目前是合理解釋，但需要影像層級或 feature separability 進一步分析 |
+
+**總結：**已驗證的是現象與直接機制：`bicycle` 被忘得比較淺，仍保留 top-5、margin 與 feature candidate signal，因此後續 boundary / representation drift 足以把它拉回 top-1。尚未完全驗證的是更深層的因果來源，例如為什麼 bicycle 比其他 vehicles_1 更 soft-forgotten，以及這個 drift 是否一定是 vehicle-specific。
+
 ## 控制實驗設計
 
 已新增 launcher：`scripts/run_cifar100_bicycle_rebound_cause_controls.sh`。它預設 `DRY_RUN=1`，只檢查 order 和輸出 queue log，不會直接開跑 unlearning。若要正式執行，可用 `DRY_RUN=0 bash scripts/run_cifar100_bicycle_rebound_cause_controls.sh`。
@@ -290,8 +331,22 @@
 | bicycle_then_vehicles2_seed1_k5 | 8,41,69,81,89 | 先忘 bicycle，再忘 vehicles_2 | 若 rebound，支持交通工具 shared representation。 |
 | motorcycle_then_vehicles_no_bicycle_seed1_k5 | 48,13,58,90,8 | 讓 motorcycle 早忘，bicycle 最後忘 | 若 motorcycle 仍不 rebound，表示早忘不是充分條件。 |
 | pickup_then_vehicles_no_bicycle_seed1_k5 | 58,13,48,90,8 | 讓 pickup_truck 早忘，bicycle 最後忘 | 若 pickup 仍不 rebound，表示原本不是 exposure 不足。 |
+| bicycle_stronger_then_vehicles1_seed1_k5 | 8,13,48,58,90 | bicycle 先忘，`UNLEARN_EPOCHS=20`，再忘 vehicles_1 | 若 forget-step top-5 下降且 final 不 rebound，支持「bicycle 被忘得太淺」是直接原因。 |
 
 **結論：**現有數據已支持 soft-forgotten + shared representation 是最合理解釋：bicycle forget top-5 `35/34/42%`、recovered samples `43/39/47`、final top-1 `43/40/48%`。但是否真的是 vehicle-specific causal effect，仍需要 `bicycle_then_flowers` 和 `bicycle_then_vehicles2` 控制實驗確認。
+
+控制實驗完成後，可用下列腳本彙整結果：
+
+```bash
+python scripts/generate_cifar100_bicycle_rebound_cause_probe_analysis.py
+```
+
+輸出：
+
+```text
+6_6_cifar100_bicycle_rebound_cause_probe_analysis.md
+6_6_cifar100_bicycle_rebound_cause_probe_summary.csv
+```
 
 ## 結論
 
